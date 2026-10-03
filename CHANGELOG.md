@@ -3,6 +3,25 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.2.0] - 2026-10-04
+
+The scope learns, the pack grows. This release turns leadhound from a demo
+into a daily-habit tool.
+
+### Added
+- **`leadhound doctor`** — pre-flight checks for profile, config, feeds, database, Telegram/LLM/webhook credentials; `--offline` mode included. Exit code 1 only on hard failures; advisory items warn.
+- **Discord + Slack webhooks** — gig cards land in your server the moment the watcher sees them. `[webhooks]` in config.toml; `leadhound webhooks` pushes pending cards on demand.
+- **`leadhound digest`** — the one-screen morning briefing: best gigs of the last 24h, score-ranked, with money, flags and links.
+- **Hacker News watcher** — the monthly "Freelancer? Seeking freelancer?" thread via HN's public Algolia API. Demand-side posts only (`SEEKING WORK` ads are skipped). Opt-in: add `hackernews` to sources.
+- **Learning loop** — `leadhound mark <id> replied|won|lost` + calibration stats: winners vs losers by average score, with hints (trust the ranking / tighten red flags / lower min_score). v0.1.0 databases migrate in place.
+- **Client intel** — poster identity (email/URL domain) cross-referenced against your own history; repeat lowballers flagged in the queue before you write a word.
+- **Native binaries** — Windows `.exe`, macOS (arm64) and Linux one-file builds, automatically attached to every release by CI (`binaries.yml`).
+
+### Fixed
+- Binaries: dedicated `entry.py` with absolute imports (PyInstaller broke package-relative `__main__.py`).
+- HN watcher: strict thread matching (was hijacked by unrelated "freelancer" stories).
+- Circular import between watchers when registering the HN source.
+
 ## [0.1.0] - 2025-01-15
 
 First public release. The sniper ships with a complete kill chain:

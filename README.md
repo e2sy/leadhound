@@ -15,7 +15,7 @@ even at 3am.*
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-`pip install -e .` · Local-first · SQLite · No accounts · No telemetry
+`pip install -e .` · Local-first · SQLite · No accounts · No telemetry · Native binaries for Win/Mac/Linux
 
 **[Quickstart](#-quickstart) · [How it works](#-how-it-works) · [Telegram in 2 minutes](#-telegram-in-2-minutes) · [FAQ](#-faq) · [Roadmap](#-roadmap)**
 
@@ -35,15 +35,19 @@ pip install -e .
 
 leadhound init      # creates ~/.leadhound with config + profile
 # -> edit ~/.leadhound/profile.toml  (skills, rates, proof bullets)
-# -> edit ~/.leadhound/config.toml   (sources, Telegram, LLM — all optional)
+# -> edit ~/.leadhound/config.toml   (sources, Telegram, Discord/Slack, LLM)
 
+leadhound doctor    # pre-flight check: config, profile, feeds, db
 leadhound demo      # offline test: injects sample gigs (incl. red-flag traps)
 leadhound queue     # review: approve / reject — drafts ready to send
+leadhound digest    # morning briefing: the best gigs from the last 24h
 
 leadhound watch                  # go live: poll real job feeds once
 leadhound watch --loop           # or keep watching on an interval
 leadhound watch --min-score 80   # only the cream
 leadhound telegram               # push gig cards to your phone
+leadhound webhooks               # push gig cards to Discord / Slack
+leadhound mark 42 won            # record outcomes — the scope learns
 ```
 
 **60-second demo with zero setup:** `leadhound demo && leadhound queue` — works fully offline. This is the exact path the launch video uses.
@@ -75,11 +79,13 @@ leadhound replaces all of that with one local watcher that never sleeps and a vo
 
 | Stage | What it does |
 |---|---|
-| **Watchers** | Pluggable connectors. v1 ships ToS-friendly public feeds: WeWorkRemotely (RSS), RemoteOK (public API), Remotive (public API). |
+| **Watchers** | Pluggable connectors. Ships ToS-friendly public feeds: WeWorkRemotely (RSS), RemoteOK (public API), Remotive (public API), Hacker News (public Algolia API — the monthly freelancer thread, demand-side posts only). |
 | **Parser** | Regex signal extraction: money (hourly / fixed / ranges), client-quality signals (payment verified, past hires, top-rated), red flags, skill matching. |
 | **Scorer** | `skills 0-60 · budget 0-25 · client quality 0-15 · red flags -15 each`. Every gig ships with a human-readable breakdown: *"58 — matched react, typescript; no budget stated (neutral)"*. |
 | **Voice engine** | Template mode works with zero config. Or plug any OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, local Ollama) and it ghostwrites in your tone, trained on your past winning proposals. |
-| **Approval queue** | Rich CLI queue or Telegram cards. **You always fire the final shot.** leadhound is a radar + copilot, *not* an auto-bidder. |
+| **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards. **You always fire the final shot.** leadhound is a radar + copilot, *not* an auto-bidder. |
+| **Client intel** | Cross-references your own gig history: repeat posters and repeat lowballers get flagged before you spend a minute on the draft. |
+| **Learning loop** | `leadhound mark <id> won/lost/replied` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The tool gets sharper the longer you hunt. |
 
 ## 🛡️ ToS-safe by design
 
@@ -99,6 +105,8 @@ It makes you faster — not banned.
 3. Fill `[telegram]` in `~/.leadhound/config.toml`, set `enabled = true`
 
 Now every gig above your threshold buzzes your pocket with the draft attached — approve on your phone, send from your laptop.
+
+Prefer Discord or Slack? Drop a webhook URL into `[webhooks]` in `config.toml` and the same gig cards land in your server the moment the watcher sees them.
 
 ## 🧠 LLM voice mode (optional)
 
@@ -168,15 +176,18 @@ Alerts email you raw posts, all of them, eventually. leadhound scores every gig 
 <details>
 <summary><b>Windows / macOS / Linux?</b></summary>
 
-Anything with Python 3.11+. `pyinstaller` one-file builds (native `.exe` / app) are on the roadmap — PRs welcome.
+Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`, macOS, Linux) straight from the [releases page](https://github.com/e2sy/leadhound/releases/latest): download, run, done.
 </details>
 
 ## 🗺️ Roadmap
 
-- [ ] Learning loop — track which proposals get replies, tune the voice engine
-- [ ] More sources (HN "freelancer wanted", niche boards) as community plugins
+- [x] Learning loop — track which proposals get replies, calibrate the scope (`leadhound mark` + stats hints)
+- [x] HN "freelancer wanted" source (public Algolia API)
+- [x] Discord + Slack webhook notifications
+- [x] Native one-file builds (Windows `.exe` / macOS / Linux) — attached to every release
+- [ ] More sources (niche boards) as community plugins
 - [ ] Web dashboard with pipeline analytics
-- [ ] PyInstaller one-file builds (Windows `.exe` / macOS app)
+- [ ] Proposal A/B testing — two drafts, track which tone wins
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

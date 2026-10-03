@@ -21,6 +21,7 @@ from .config import (
 from .demo import DEMO_JOBS
 from .digest import cmd_digest
 from .doctor import cmd_doctor
+from .engine import intel
 from .engine.scorer import score_job
 from .engine.voice import draft_proposal
 from .notify import telegram as tg
@@ -148,12 +149,14 @@ def cmd_queue(args) -> None:
     for job in pending:
         b = job.breakdown
         matched = ", ".join(b.get("skills", {}).get("matched", [])) or "—"
+        tip = intel.intel_for(job)
         body = Panel(
             f"[bold]{job.title}[/bold]\n"
             f"{job.source} | {job.url}\n\n"
             f"[bold]Score {job.score}/100[/bold] — matched: {matched}\n"
             f"{b.get('budget', {}).get('note', '')}\n"
             + (f"[red]Red flags: {', '.join(b.get('red_flags', []))}[/red]\n" if b.get("red_flags") else "")
+            + (f"[cyan]🔬 {tip}[/cyan]\n" if tip else "")
             + f"\n{job.draft}",
             title=f"#{job.id} · {job.source}",
         )
@@ -192,9 +195,11 @@ def cmd_show(args) -> None:
         return
     b = job.breakdown
     matched = ", ".join(b.get("skills", {}).get("matched", [])) or "—"
+    tip = intel.intel_for(job)
     console.print(Panel(
         f"{job.title}\n{job.source} | {job.url}\n"
-        f"Score {job.score}/100 — matched: {matched} — status: {job.status}",
+        f"Score {job.score}/100 — matched: {matched} — status: {job.status}"
+        + (f"\n🔬 {tip}" if tip else ""),
         title=f"Job #{job.id}",
     ))
     console.print(Panel(job.draft or "(no draft — score below threshold)", title="Draft proposal"))

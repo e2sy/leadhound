@@ -19,6 +19,7 @@ from .config import (
     load_profile,
 )
 from .demo import DEMO_JOBS
+from .digest import cmd_digest
 from .doctor import cmd_doctor
 from .engine.scorer import score_job
 from .engine.voice import draft_proposal
@@ -288,6 +289,12 @@ def main() -> None:
     dr = sub.add_parser("doctor", help="pre-flight check: config, profile, feeds, db")
     dr.add_argument("--offline", action="store_true", help="skip all network checks")
     dr.set_defaults(fn=cmd_doctor)
+
+    dg = sub.add_parser("digest", help="morning briefing: best gigs from the last 24h")
+    dg.add_argument("--hours", type=int, default=24, help="lookback window")
+    dg.add_argument("--min-score", type=int, default=0)
+    dg.add_argument("--limit", type=int, default=5, help="max gigs to show")
+    dg.set_defaults(fn=cmd_digest)
 
     args = p.parse_args()
     try:

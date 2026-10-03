@@ -142,6 +142,21 @@ def pending_unnotified(min_score: int = 0, limit: int = 20) -> list[Job]:
     return [Job(**dict(r)) for r in rows]
 
 
+def recent_jobs(hours: int = 24, min_score: int = 0, limit: int = 5) -> list[Job]:
+    """Best gigs fetched within the last N hours — the digest feed."""
+    c = _conn()
+    rows = c.execute(
+        """
+        SELECT * FROM jobs
+        WHERE fetched_at >= datetime('now', ?) AND score >= ?
+        ORDER BY score DESC, id DESC LIMIT ?
+        """,
+        (f"-{int(hours)} hours", min_score, limit),
+    ).fetchall()
+    c.close()
+    return [Job(**dict(r)) for r in rows]
+
+
 def mark_notified(job_id: int) -> None:
     c = _conn()
     c.execute("UPDATE jobs SET notified = 1 WHERE id = ?", (job_id,))

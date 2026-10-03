@@ -9,7 +9,7 @@
 disproportionate replies. leadhound makes sure you're always among them —
 even at 3am.*
 
-[![CI](https://github.com/YOUR_GITHUB_USERNAME/leadhound/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/leadhound/actions/workflows/ci.yml)
+[![CI](https://github.com/e2sy/leadhound/actions/workflows/ci.yml/badge.svg)](https://github.com/e2sy/leadhound/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
@@ -30,7 +30,7 @@ even at 3am.*
 ## ⚡ Quickstart
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/leadhound && cd leadhound
+git clone https://github.com/e2sy/leadhound && cd leadhound
 pip install -e .
 
 leadhound init      # creates ~/.leadhound with config + profile
@@ -179,7 +179,7 @@ Anything with Python 3.11+. `pyinstaller` one-file builds (native `.exe` / app) 
 - [ ] PyInstaller one-file builds (Windows `.exe` / macOS app)
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
-Check the [open issues](https://github.com/YOUR_GITHUB_USERNAME/leadhound/issues) to grab something.
+Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.
 
 ## 🤝 Contributing
 

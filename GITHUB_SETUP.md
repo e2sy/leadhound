@@ -34,7 +34,7 @@ pushes `main` + the `v0.1.0` tag, and prints the next two steps.
 2. **Connect and push**
 
    ```bash
-   git remote add origin https://github.com/YOUR_GITHUB_USERNAME/leadhound.git
+   git remote add origin https://github.com/e2sy/leadhound.git
    git push -u origin main
    git push origin --tags
    ```
@@ -51,7 +51,7 @@ pushes `main` + the `v0.1.0` tag, and prints the next two steps.
 
 | Step | Where | Why it matters |
 |---|---|---|
-| Replace `YOUR_GITHUB_USERNAME` in README.md, pyproject.toml, CONTRIBUTING.md, `.github/ISSUE_TEMPLATE/config.yml`, `leadhound/watchers/rss.py` | any editor | Badges/links go live (the push script does this automatically) |
+| Replace `e2sy` in README.md, pyproject.toml, CONTRIBUTING.md, `.github/ISSUE_TEMPLATE/config.yml`, `leadhound/watchers/rss.py` | any editor | Badges/links go live (the push script does this automatically) |
 | Social preview image (1280×640) | Settings → Social preview | This is what cards look like when the repo is shared — make a simple logo-on-dark shot |
 | Publish the release | Releases → Draft → tag `v0.1.0` → *Generate release notes* → Publish | The `release.yml` workflow auto-attaches the built `.whl` + `.tar.gz` |
 | Watch the first CI run | Actions tab | Should be green — 29 tests, ruff, Python 3.11–3.13. Red? That's a real bug, tell us. |
@@ -62,7 +62,7 @@ pushes `main` + the `v0.1.0` tag, and prints the next two steps.
 
 ```
 leadhound — the gig sniper (open source)
-→ https://github.com/YOUR_GITHUB_USERNAME/leadhound
+→ https://github.com/e2sy/leadhound
 
 What it does: watches freelance job boards 24/7, scores every gig against
 YOUR profile, drafts the proposal in YOUR voice. You just approve and send.

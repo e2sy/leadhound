@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 import feedparser
 import requests
 
-UA = {"User-Agent": "leadhound/0.1 (+https://github.com/YOUR_GITHUB_USERNAME/leadhound)"}
+UA = {"User-Agent": "leadhound/0.1 (+https://github.com/e2sy/leadhound)"}
 
 
 def _now_iso() -> str:

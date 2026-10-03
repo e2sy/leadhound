@@ -5,7 +5,7 @@
 #    ./push-to-github.sh
 #
 #  Creates the repo, sets description + topics, replaces the
-#  YOUR_GITHUB_USERNAME placeholders, pushes main + the v0.1.0 tag.
+#  e2sy placeholders, pushes main + the v0.1.0 tag.
 #
 #  Prereqs (Option A): GitHub CLI  ->  https://cli.github.com
 #      gh auth login
@@ -23,16 +23,16 @@ TOPICS="freelance,freelancer,upwork,remote-work,job-search,job-board,automation,
 if [[ -z "$GITHUB_USER" ]]; then
   read -rp "GitHub username: " GITHUB_USER
 fi
-[[ "$GITHUB_USER" == "YOUR_GITHUB_USERNAME" || -z "$GITHUB_USER" ]] && {
+[[ "$GITHUB_USER" == "e2sy" || -z "$GITHUB_USER" ]] && {
   echo "✗ A real username is required."; exit 1; }
 SLUG="${GITHUB_USER}/${REPO_NAME}"
 
 # --- 2. Replace placeholders (idempotent) ------------------------------
-if grep -rq "YOUR_GITHUB_USERNAME" README.md pyproject.toml CONTRIBUTING.md .github leadhound 2>/dev/null; then
+if grep -rq "e2sy" README.md pyproject.toml CONTRIBUTING.md .github leadhound 2>/dev/null; then
   echo "→ Linking docs and badges to ${SLUG} ..."
   if sed --version >/dev/null 2>&1; then SED="sed -i"; else SED="sed -i ''"; fi
-  grep -rl "YOUR_GITHUB_USERNAME" README.md pyproject.toml CONTRIBUTING.md .github leadhound 2>/dev/null \
-    | while read -r f; do $SED "s|YOUR_GITHUB_USERNAME|${GITHUB_USER}|g" "$f"; done
+  grep -rl "e2sy" README.md pyproject.toml CONTRIBUTING.md .github leadhound 2>/dev/null \
+    | while read -r f; do $SED "s|e2sy|${GITHUB_USER}|g" "$f"; done
   git add -A
   git diff --cached --quiet || git commit -q -m "docs: point badges and URLs at ${SLUG}"
 fi

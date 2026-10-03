@@ -7,7 +7,7 @@ targets. This doc gets you from clone to merged PR.
 ## Dev setup
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/leadhound && cd leadhound
+git clone https://github.com/e2sy/leadhound && cd leadhound
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pip install pytest ruff                              # test + lint toolchain

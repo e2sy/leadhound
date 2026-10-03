@@ -40,10 +40,10 @@ dependencies = [
 dev = ["pytest>=8.0", "ruff>=0.6", "pyinstaller>=6.0"]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_GITHUB_USERNAME/leadhound"
-Repository = "https://github.com/YOUR_GITHUB_USERNAME/leadhound"
-Issues = "https://github.com/YOUR_GITHUB_USERNAME/leadhound/issues"
-Changelog = "https://github.com/YOUR_GITHUB_USERNAME/leadhound/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/e2sy/leadhound"
+Repository = "https://github.com/e2sy/leadhound"
+Issues = "https://github.com/e2sy/leadhound/issues"
+Changelog = "https://github.com/e2sy/leadhound/blob/main/CHANGELOG.md"
 
 [project.scripts]
 leadhound = "leadhound.cli:main"

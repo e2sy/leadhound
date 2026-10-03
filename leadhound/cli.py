@@ -1,4 +1,4 @@
-"""leadhound CLI — init, demo, watch, queue, show, telegram, stats."""
+"""leadhound CLI — init, demo, watch, queue, show, telegram, stats, doctor."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .config import (
     load_profile,
 )
 from .demo import DEMO_JOBS
+from .doctor import cmd_doctor
 from .engine.scorer import score_job
 from .engine.voice import draft_proposal
 from .notify import telegram as tg
@@ -252,6 +253,10 @@ def main() -> None:
 
     st = sub.add_parser("stats", help="pipeline stats")
     st.set_defaults(fn=cmd_stats)
+
+    dr = sub.add_parser("doctor", help="pre-flight check: config, profile, feeds, db")
+    dr.add_argument("--offline", action="store_true", help="skip all network checks")
+    dr.set_defaults(fn=cmd_doctor)
 
     args = p.parse_args()
     try:

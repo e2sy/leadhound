@@ -240,13 +240,33 @@ def cmd_webhooks(args) -> None:
 def cmd_stats(args) -> None:
     _require_init()
     s = db.stats()
+    cal = db.calibration()
+    hint = cal.pop("hint", "")
+    cal_line = "   ".join(
+        f"[bold]{k}[/bold]: {v['n']} (avg {v['avg_score']})" for k, v in cal.items()
+    ) or "—"
     console.print(Panel.fit(
         f"Total gigs seen: [bold]{s['total']}[/bold]\n"
         f"Highest score:   [bold]{s['highest_score']}[/bold]\n"
         f"Pending:  {s['pending']}   Approved: {s['approved']}\n"
-        f"Rejected: {s['rejected']}   Sent:     {s['sent']}",
+        f"Rejected: {s['rejected']}   Sent:     {s['sent']}\n\n"
+        f"[bold]Outcomes[/bold]  {cal_line}\n"
+        f"[dim]↳ {hint}[/dim]",
         title="leadhound stats",
     ))
+
+
+def cmd_mark(args) -> None:
+    _require_init()
+    job = db.get_job(args.id)
+    if not job:
+        console.print("[red]No such job.[/red]")
+        raise SystemExit(1)
+    db.set_outcome(args.id, args.outcome)
+    console.print(
+        f"[green]Marked #{args.id} as {args.outcome}.[/green] "
+        "Run [bold]leadhound stats[/bold] to see the scope calibrate."
+    )
 
 
 # --------------------------------------------------------------------- parser
@@ -283,8 +303,13 @@ def main() -> None:
     wb = sub.add_parser("webhooks", help="push pending gig cards to Discord/Slack")
     wb.set_defaults(fn=cmd_webhooks)
 
-    st = sub.add_parser("stats", help="pipeline stats")
+    st = sub.add_parser("stats", help="pipeline stats + score calibration")
     st.set_defaults(fn=cmd_stats)
+
+    mk = sub.add_parser("mark", help="record a gig outcome: replied / won / lost")
+    mk.add_argument("id", type=int)
+    mk.add_argument("outcome", choices=db.OUTCOMES)
+    mk.set_defaults(fn=cmd_mark)
 
     dr = sub.add_parser("doctor", help="pre-flight check: config, profile, feeds, db")
     dr.add_argument("--offline", action="store_true", help="skip all network checks")

@@ -29,6 +29,8 @@ class Job:
     status: str = "pending"
     notified: int = 0
     draft: str = ""
+    outcome: str | None = None
+    outcome_at: str | None = None
 
     @property
     def breakdown(self) -> dict:
@@ -44,6 +46,9 @@ def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(p)
     c.row_factory = sqlite3.Row
     return c
+
+
+OUTCOMES = ("replied", "won", "lost")
 
 
 def ensure_db() -> None:
@@ -67,12 +72,24 @@ def ensure_db() -> None:
             score_json TEXT DEFAULT '{}',
             status TEXT DEFAULT 'pending',
             notified INTEGER DEFAULT 0,
-            draft TEXT DEFAULT ''
+            draft TEXT DEFAULT '',
+            outcome TEXT,
+            outcome_at TEXT
         )
         """
     )
+    _migrate(c)
     c.commit()
     c.close()
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """In-place upgrades for databases created before the learning loop."""
+    cols = {r[1] for r in c.execute("PRAGMA table_info(jobs)").fetchall()}
+    if "outcome" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN outcome TEXT")
+    if "outcome_at" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN outcome_at TEXT")
 
 
 def upsert_job(job: dict, score: int, score_json: dict, draft: str) -> tuple[int, bool]:
@@ -174,3 +191,68 @@ def stats() -> dict:
     out["total"], out["highest_score"] = row["n"], row["hi"]
     c.close()
     return out
+
+
+def set_outcome(job_id: int, outcome: str) -> None:
+    """Record what happened after you sent the proposal — the learning signal."""
+    if outcome not in OUTCOMES:
+        raise ValueError(f"outcome must be one of {OUTCOMES}")
+    c = _conn()
+    c.execute(
+        "UPDATE jobs SET outcome = ?, outcome_at = datetime('now') WHERE id = ?",
+        (outcome, job_id),
+    )
+    c.commit()
+    c.close()
+
+
+def calibration() -> dict:
+    """Score-vs-outcome aggregation: does the sniper scope actually track wins?
+
+    Returns {outcome: {"n": int, "avg_score": float}} plus a human hint.
+    """
+    c = _conn()
+    rows = c.execute(
+        """
+        SELECT outcome, COUNT(*) AS n, AVG(score) AS avg_score
+        FROM jobs WHERE outcome IS NOT NULL
+        GROUP BY outcome
+        """
+    ).fetchall()
+    c.close()
+    out = {r["outcome"]: {"n": r["n"], "avg_score": round(r["avg_score"], 1)} for r in rows}
+    out["hint"] = _calibration_hint(out)
+    return out
+
+
+def _calibration_hint(by_outcome: dict) -> str:
+    won, lost, replied = (
+        by_outcome.get("won"),
+        by_outcome.get("lost"),
+        by_outcome.get("replied"),
+    )
+    if not won and not lost:
+        if replied:
+            return (
+                f"{replied['n']} reply(ies) so far — keep marking outcomes after "
+                "each 'won'/'lost' to calibrate."
+            )
+        return "No outcomes marked yet. After a client replies, run: leadhound mark <id> replied"
+    if won and lost:
+        gap = won["avg_score"] - lost["avg_score"]
+        if gap >= 5:
+            return f"Scope is calibrated — winners outscore losers by {gap:g} pts. Trust the ranking."
+        if gap <= -5:
+            return (
+                f"Losers outscore winners by {abs(gap):g} pts — tighten red flags "
+                "or revisit your skills list."
+            )
+        return "Winners and losers score similarly — outcome data will sharpen the scope."
+    if won and won["avg_score"] < 60:
+        return (
+            f"Your winner(s) average {won['avg_score']:g} — your market scores low. "
+            "Consider a lower min_score so these gigs aren't dimmed."
+        )
+    if won:
+        return f"Winner(s) average {won['avg_score']:g} — the scope points the right way."
+    return "Mark more outcomes (leadhound mark <id> won|lost) to calibrate."

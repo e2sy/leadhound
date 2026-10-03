@@ -16,7 +16,8 @@ CONFIG_TOML = """\
 min_score = 60
 # Minutes between polls
 interval_minutes = 15
-# Active sources (watchers). Available: weworkremotely, remoteok, remotive
+# Active sources (watchers).
+# Available: weworkremotely, remoteok, remotive, hackernews
 sources = ["weworkremotely", "remoteok", "remotive"]
 
 [llm]

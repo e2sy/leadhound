@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 import feedparser
 import requests
 
+from . import hn as _hn
+
 UA = {"User-Agent": "leadhound/0.1 (+https://github.com/e2sy/leadhound)"}
 
 
@@ -110,6 +112,7 @@ SOURCES = {
     "weworkremotely": weworkremotely,
     "remoteok": remoteok,
     "remotive": remotive,
+    "hackernews": _hn.fetch,
 }
 
 

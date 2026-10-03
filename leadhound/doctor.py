@@ -146,6 +146,7 @@ def _check_feeds(sources: list[str]) -> list[Check]:
         "weworkremotely": "https://weworkremotely.com/categories/remote-freelance-jobs.rss",
         "remoteok": "https://remoteok.com/api",
         "remotive": "https://remotive.com/api/remote-jobs?category=software-dev",
+        "hackernews": "https://hn.algolia.com/api/v1/search_by_date?tags=story&query=freelancer",
     }
     out = []
     for name in sources:

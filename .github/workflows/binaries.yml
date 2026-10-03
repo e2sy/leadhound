@@ -31,7 +31,7 @@ jobs:
           pip install -e . pyinstaller
 
       - name: Build one-file binary
-        run: pyinstaller --onefile --clean --name leadhound-${{ matrix.name }} leadhound/__main__.py
+        run: pyinstaller --onefile --clean --name leadhound-${{ matrix.name }} entry.py
 
       - name: Smoke test the binary (linux only)
         if: matrix.name == 'linux-x64'

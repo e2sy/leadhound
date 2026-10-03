@@ -64,7 +64,11 @@ class TestBuildDigest:
                 "tags": [],
             },
             30,
-            {"budget": {"hourly": None, "fixed_min": None}, "skills": {"matched": []}, "red_flags": ["unpaid"]},
+            {
+                "budget": {"hourly": None, "fixed_min": None},
+                "skills": {"matched": []},
+                "red_flags": ["unpaid"],
+            },
             "",
         )
         jobs = db.recent_jobs(hours=24, min_score=0, limit=5)

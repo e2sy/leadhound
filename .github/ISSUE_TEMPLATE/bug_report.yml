@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in the pipeline misfired — tell us and we'll fix it.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste secrets here** — no Telegram bot tokens, no LLM API keys,
+        no `profile.toml` contents. Redact gig URLs if they're private.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, what came out instead?
+      placeholder: ran `leadhound watch`, gig #42 scored 0 but it's a perfect match…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. leadhound init
+        2. edit profile with skills [react, node.js]
+        3. leadhound demo && leadhound queue --list
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: leadhound version / OS / Python
+      placeholder: v0.1.0, macOS 15, Python 3.12
+    validations:
+      required: true
+  - type: checkboxes
+    id: tos
+    attributes:
+      label: Sanity check
+      options:
+        - label: This is not a request to auto-bid or scrape logged-in pages (that's a design decision, not a bug)
+          required: true

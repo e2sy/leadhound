@@ -1,0 +1,26 @@
+name: Feature request
+description: Make the hunt sharper — sources, scoring ideas, integrations.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What slows you down today? Which gigs slip through and why?
+      placeholder: RSS watcher misses HN "freelancer wanted" threads, which is where my best clients post…
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The fix you'd love
+      description: Concrete behavior, not vibes. "add a watcher for X" beats "make it smarter".
+    validations:
+      required: true
+  - type: checkboxes
+    id: tos
+    attributes:
+      label: ToS-safe check
+      options:
+        - label: This feature can be built while staying ToS-safe (public feeds, human approval, no auto-sending)
+          required: true

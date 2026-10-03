@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual envs
+.venv/
+venv/
+ENV/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# leadhound local data (never commit your profile or gig DB)
+.leadhound/
+*.db
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Packaging artifacts
+*.spec

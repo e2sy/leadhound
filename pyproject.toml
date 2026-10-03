@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leadhound"
+version = "0.1.0"
+description = "The gig sniper — watches freelance job boards, scores every gig against YOUR profile, drafts the proposal in your voice. You just approve and send."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "leadhound contributors" }]
+keywords = [
+  "freelance", "freelancer", "upwork", "fiverr", "job-search",
+  "job-board", "remote-work", "automation", "ai", "llm",
+  "telegram-bot", "cli", "productivity",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business",
+  "Topic :: Communications :: Chat",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "feedparser>=6.0",
+  "requests>=2.31",
+  "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6", "pyinstaller>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_GITHUB_USERNAME/leadhound"
+Repository = "https://github.com/YOUR_GITHUB_USERNAME/leadhound"
+Issues = "https://github.com/YOUR_GITHUB_USERNAME/leadhound/issues"
+Changelog = "https://github.com/YOUR_GITHUB_USERNAME/leadhound/blob/main/CHANGELOG.md"
+
+[project.scripts]
+leadhound = "leadhound.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["leadhound*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "S", "BLE"]
+# Justified ignores — deliberate graceful-degradation patterns:
+#   BLE001/S110: fallbacks are the design (LLM failure -> template, feed failure -> skip).
+ignore = ["BLE001", "S110"]
+
+[tool.ruff.lint.per-file-ignores]
+# `assert` is how pytest works, not a security hole
+"tests/*" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Idea that might violate a platform's ToS?
+    url: https://github.com/YOUR_GITHUB_USERNAME/leadhound/blob/main/CONTRIBUTING.md#ground-rules
+    about: Read the ground rules first — no auto-bidding, no logged-in scraping. If your idea needs that, it won't be built here.

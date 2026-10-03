@@ -1,0 +1,33 @@
+# Copy this to ~/.leadhound/profile.toml and make it brutally honest.
+# The scorer is only as sharp as this file.
+
+name = "Aisha Khan"
+headline = "Mobile + payments dev — React Native, Stripe, Firebase"
+
+# Skills the scorer hunts for in job posts (lowercase). Order = priority.
+skills = [
+  "react native", "react", "stripe", "firebase", "typescript",
+  "node.js", "expo", "next.js",
+]
+
+# Earnings floor — gigs below this get scored down hard.
+min_hourly = 35
+min_fixed_budget = 1000
+
+# Instant red flags — each match costs the gig 15 points.
+red_flags = ["unpaid", "for exposure", "equity only", "revenue share only", "crypto payment"]
+
+# Proof bullets injected into every proposal draft. Numbers beat adjectives.
+highlights = [
+  "Shipped 9 React Native apps with 500k+ combined downloads",
+  "Integrated Stripe billing for 6 SaaS products, zero failed-webhook incidents",
+]
+
+# 1-3 samples of YOUR past winning proposals — the voice engine copies this.
+tone_samples = [
+  '''
+  Hey — I've literally built this flow before (subscription app, 80k users,
+  Stripe + RevenueCat). My plan for yours: week 1 auth + payments, then
+  weekly demo builds until launch. I can start Monday — quick call?
+  ''',
+]

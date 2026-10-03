@@ -23,6 +23,7 @@ from .doctor import cmd_doctor
 from .engine.scorer import score_job
 from .engine.voice import draft_proposal
 from .notify import telegram as tg
+from .notify import webhooks as wh
 from .watchers.rss import poll
 
 console = Console()
@@ -51,7 +52,7 @@ def cmd_init(args) -> None:
 def _process(jobs: list[dict], min_score: int, notify: bool) -> None:
     """Score → draft → store → optionally push to Telegram."""
     profile = load_profile()
-    _, llm_cfg, tg_cfg = load_config()
+    _, llm_cfg, tg_cfg, wh_cfg = load_config()
     new_count = 0
 
     table = Table(title="Poll results", show_lines=False)
@@ -86,13 +87,21 @@ def _process(jobs: list[dict], min_score: int, notify: bool) -> None:
             if not ok:
                 console.print("[red]Telegram push failed — check config.toml[/red]")
 
+        if draft and notify and (wh_cfg.discord_webhook_url or wh_cfg.slack_webhook_url):
+            j = db.get_job(rid)
+            results = wh.send_webhooks(j, breakdown, wh_cfg)
+            db.mark_notified(rid)
+            for platform, ok in results:
+                if not ok:
+                    console.print(f"[red]{platform} webhook failed — check the URL[/red]")
+
     console.print(table)
     console.print(f"[bold]{new_count} new[/bold] gig(s) processed.")
 
 
 def cmd_watch(args) -> None:
     _require_init()
-    watch_cfg, _, _ = load_config()
+    watch_cfg, _, _, _ = load_config()
     min_score = args.min_score if args.min_score is not None else watch_cfg.min_score
     sources = args.sources.split(",") if args.sources else watch_cfg.sources
 
@@ -192,7 +201,7 @@ def cmd_show(args) -> None:
 
 def cmd_telegram(args) -> None:
     _require_init()
-    watch_cfg, _, tg_cfg = load_config()
+    watch_cfg, _, tg_cfg, _ = load_config()
     if not tg_cfg.enabled:
         console.print("[red]Telegram not enabled in config.toml[/red]")
         return
@@ -206,6 +215,25 @@ def cmd_telegram(args) -> None:
             db.mark_notified(job.id)
             sent += 1
     console.print(f"[green]Pushed {sent} gig card(s) to Telegram.[/green]")
+
+
+def cmd_webhooks(args) -> None:
+    _require_init()
+    watch_cfg, _, _, wh_cfg = load_config()
+    if not (wh_cfg.discord_webhook_url or wh_cfg.slack_webhook_url):
+        console.print("[red]No webhooks configured — fill [webhooks] in config.toml[/red]")
+        return
+    pending = db.pending_unnotified(min_score=watch_cfg.min_score)
+    sent = 0
+    for job in pending:
+        results = wh.send_webhooks(job, job.breakdown, wh_cfg)
+        if any(ok for _, ok in results):
+            db.mark_notified(job.id)
+            sent += 1
+        for platform, ok in results:
+            if not ok:
+                console.print(f"[red]{platform} webhook failed — check the URL[/red]")
+    console.print(f"[green]Pushed {sent} gig card(s) to your webhooks.[/green]")
 
 
 def cmd_stats(args) -> None:
@@ -250,6 +278,9 @@ def main() -> None:
 
     t = sub.add_parser("telegram", help="push pending gig cards to Telegram")
     t.set_defaults(fn=cmd_telegram)
+
+    wb = sub.add_parser("webhooks", help="push pending gig cards to Discord/Slack")
+    wb.set_defaults(fn=cmd_webhooks)
 
     st = sub.add_parser("stats", help="pipeline stats")
     st.set_defaults(fn=cmd_stats)

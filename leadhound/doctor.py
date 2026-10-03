@@ -81,7 +81,7 @@ def _check_config() -> list[Check]:
     if not is_initialized():
         return [Check("config", False, "not initialized", "run: leadhound init")]
     try:
-        w, llm, tg = load_config()
+        w, llm, tg, whc = load_config()
     except Exception as exc:
         return [Check("config", False, f"unparsable: {exc}", "fix the TOML syntax in config.toml")]
     checks = [
@@ -116,6 +116,16 @@ def _check_config() -> list[Check]:
             "telegram", creds,
             "token + chat_id present" if creds else "missing credentials",
             "" if creds else "fill bot_token and chat_id, or set enabled=false",
+        ))
+    if whc.discord_webhook_url and not whc.discord_webhook_url.startswith("https://"):
+        checks.append(Check(
+            "webhooks: discord", False, "URL must start with https://",
+            "copy the full webhook URL from Discord server settings",
+        ))
+    if whc.slack_webhook_url and not whc.slack_webhook_url.startswith("https://hooks.slack.com/"):
+        checks.append(Check(
+            "webhooks: slack", False, "not a Slack webhook URL",
+            "expecting https://hooks.slack.com/services/...",
         ))
     return checks
 
@@ -163,7 +173,7 @@ def run_checks(offline: bool = False) -> list[Check]:
     checks.append(_check_db())
     if not offline:
         try:
-            w, _, _ = load_config()
+            w, _, _, _ = load_config()
             checks += _check_feeds(w.sources)
         except Exception:
             checks.append(Check("feeds", None, "skipped — config unparsable"))

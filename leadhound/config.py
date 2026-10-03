@@ -35,6 +35,14 @@ model = "gpt-4o-mini"
 enabled = false
 bot_token = ""
 chat_id = ""
+
+[webhooks]
+# Optional: push gig cards straight into your Discord server or Slack.
+# Discord: Server Settings -> Integrations -> Webhooks -> New Webhook -> copy URL
+# Slack:   api.slack.com/messaging/webhooks -> create an incoming webhook
+# Leave empty to disable. Both can be active at once.
+discord_webhook_url = ""
+slack_webhook_url = ""
 """
 
 PROFILE_TOML = """\
@@ -100,6 +108,12 @@ class TelegramConfig:
 
 
 @dataclass
+class WebhookConfig:
+    discord_webhook_url: str = ""
+    slack_webhook_url: str = ""
+
+
+@dataclass
 class WatchConfig:
     min_score: int = 60
     interval_minutes: int = 15
@@ -139,11 +153,12 @@ def init_files() -> None:
     ensure_db()
 
 
-def load_config() -> tuple[WatchConfig, LLMConfig, TelegramConfig]:
+def load_config() -> tuple[WatchConfig, LLMConfig, TelegramConfig, WebhookConfig]:
     raw = tomllib.loads(config_path().read_text())
     w = raw.get("watch", {})
     ll = raw.get("llm", {})
     t = raw.get("telegram", {})
+    wb = raw.get("webhooks", {})
     return (
         WatchConfig(
             min_score=int(w.get("min_score", 60)),
@@ -160,6 +175,10 @@ def load_config() -> tuple[WatchConfig, LLMConfig, TelegramConfig]:
             enabled=bool(t.get("enabled", False)),
             bot_token=str(t.get("bot_token", "")),
             chat_id=str(t.get("chat_id", "")),
+        ),
+        WebhookConfig(
+            discord_webhook_url=str(wb.get("discord_webhook_url", "")),
+            slack_webhook_url=str(wb.get("slack_webhook_url", "")),
         ),
     )
 

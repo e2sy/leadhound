@@ -14,7 +14,7 @@ import re
 
 import requests
 
-from .rss import UA
+from . import UA
 
 API = "https://hn.algolia.com/api/v1"
 THREAD_HINT = "freelancer"

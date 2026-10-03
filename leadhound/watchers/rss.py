@@ -14,9 +14,10 @@ from datetime import UTC, datetime
 import feedparser
 import requests
 
+from . import UA as _UA
 from . import hn as _hn
 
-UA = {"User-Agent": "leadhound/0.1 (+https://github.com/e2sy/leadhound)"}
+UA = _UA
 
 
 def _now_iso() -> str:

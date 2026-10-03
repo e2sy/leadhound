@@ -27,21 +27,33 @@ def _strip_html(raw: str) -> str:
 
 
 def pick_thread(hits: list[dict]) -> dict | None:
-    """Newest story whose title mentions the freelancer thread (hits are
-    already date-sorted newest-first by search_by_date)."""
+    """Find the monthly 'Freelancer? Seeking freelancer?' thread.
+
+    Strict on purpose: random stories that merely mention freelancers
+    (Show HNs, advice threads) are NOT gig sources. Hits arrive
+    newest-first from search_by_date.
+    """
     for h in hits:
-        if THREAD_HINT in (h.get("title") or "").lower():
+        title = re.sub(r"\s+", " ", (h.get("title") or "")).lower()
+        if "freelancer? seeking freelancer" in title or "seeking freelancer? freelancer?" in title:
             return h
     return None
 
 
 def parse_thread(item: dict) -> list[dict]:
-    """Top-level comments -> normalized gig dicts. Children (replies) are ignored:
-    a reply is a conversation, not a gig post."""
+    """Top-level comments -> normalized gig dicts.
+
+    Skipped on purpose:
+      * replies (children of children) — conversation, not posts
+      * 'SEEKING WORK' comments — that's freelancers advertising; the
+        tool hunts demand (clients), not supply.
+    """
     out = []
     for c in item.get("children") or []:
         text = _strip_html(c.get("text") or "")
         if not text:
+            continue
+        if text.lower().startswith("seeking work"):
             continue
         first_line = text.split(". ")[0][:140]
         out.append({

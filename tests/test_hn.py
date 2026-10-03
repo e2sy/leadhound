@@ -3,8 +3,9 @@
 from leadhound.watchers import hn
 
 SEARCH_HITS = [
+    {"objectID": "444", "title": "Show HN: Zebu - time tracking for freelancers"},
     {"objectID": "111", "title": "Who is hiring? (January 2025)"},
-    {"objectID": "222", "title": "Freelancer? Seeking freelancer? (January 2025)"},
+    {"objectID": "222", "title": "Ask HN: Freelancer? Seeking freelancer? (January 2025)"},
     {"objectID": "333", "title": "Ask HN: how to price work"},
 ]
 
@@ -26,7 +27,13 @@ THREAD = {
             "text": "Studio needs a Next.js contractor for a fintech dashboard. Remote.",
             "children": [],
         },
-        {"id": 9003, "created_at": "2025-01-02T12:00:00Z", "text": "", "children": []},
+        {
+            "id": 9003,
+            "created_at": "2025-01-02T12:00:00Z",
+            "text": "<p>SEEKING WORK: Senior dev, remote, 10 years exp.</p>",
+            "children": [],
+        },
+        {"id": 9004, "created_at": "2025-01-02T13:00:00Z", "text": "", "children": []},
     ],
 }
 
@@ -42,7 +49,11 @@ class TestPickThread:
 class TestParseThread:
     def test_top_level_comments_become_gigs(self):
         gigs = hn.parse_thread(THREAD)
-        assert len(gigs) == 2  # reply + empty comment excluded
+        assert len(gigs) == 2  # reply, SEEKING WORK ad + empty comment excluded
+
+    def test_supply_side_ads_are_skipped(self):
+        gigs = hn.parse_thread(THREAD)
+        assert all("SEEKING WORK" not in g["body"].upper() for g in gigs)
 
     def test_guid_source_url_shape(self):
         g = hn.parse_thread(THREAD)[0]

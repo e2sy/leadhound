@@ -3,6 +3,21 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.6.0] - 2026-10-04
+
+The real-accounts release. The dashboard now leads with connecting your job sites — the sample data takes a back seat.
+
+### Added
+- **Accounts hub**: a full-page connections view (board/accounts tabs) — one card per job site with an honest state badge (connected / error / on-not-tested / setup needed / off), last-sweep line with the real error text, inline settings, and per-source `save & test` probing.
+- **Setup wizards**: Upwork (free dev-app steps, copyable redirect URI, one-click OAuth connect) and Fiverr (cookie-extraction steps with an honest beta warning).
+- **Radar visibility**: `GET /api/radar` exposes the poller's real state — running, sweep interval, armed sources — and the accounts page shows it as a heartbeat.
+- **First-run connect checklist**: the empty board is now a 3-step list (connect a source → fetch real gigs → approve & send) that ticks itself green as you go.
+- Fetch-all now reports per source with friendly labels ("Freelancer.com +23 · RemoteOK +0").
+
+### Changed
+- The sources drawer is gone — replaced by the accounts hub.
+- **Demo demoted**: the 🎲 sample-gigs button left the hero; it's a small "just exploring?" link now. The app opens pointing at real hunting, not sample data.
+
 ## [0.5.0] - 2026-10-04
 
 The real-backend release. No more demo-by-default: log in, connect the job sites you actually want, and fetch live gigs.

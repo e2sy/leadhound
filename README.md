@@ -70,7 +70,7 @@ leadhound web --port 7800
 ## 🎮 Usage — every way to drive it
 
 **The dashboard** (`leadhound web`) is the main cockpit — kanban board, live search,
-in-browser draft editor, sources drawer, background radar. Everything below is optional
+in-browser draft editor, accounts hub, background radar. Everything below is optional
 and drives the same pipeline:
 
 | Command | What it does |
@@ -106,10 +106,10 @@ leadhound replaces all of that with one local watcher that never sleeps and a vo
 
 ## 🔌 Sources — connect the job sites
 
-The **⚙ sources** drawer is where the hunting happens. Every source is a connector with its own setup, status line and "⚡ run now" button. Enabled sources re-poll automatically every `interval_minutes` while the app runs.
+The **🔗 accounts** tab is where the hunting happens. Every job site gets a card with its connection state (✅ connected · ❌ error · ⚠ setup needed · ⚫ off), its last sweep (+ how many new gigs, or the real error), inline settings and a **⚡ save & test** probe. Enabled sources re-poll automatically every `interval_minutes` while the app runs — the accounts page shows the radar's live heartbeat.
 
 <p align="center">
-  <img src="docs/screenshot-sources.png" alt="the sources drawer — 8 connectors with per-source setup, masked secrets, run-now buttons" width="720">
+  <img src="docs/screenshot-sources.png" alt="the accounts hub — 8 job sites with connection state badges, setup wizards, save & test probing" width="720">
 </p>
 
 | Connector | Setup | What you get |
@@ -149,7 +149,7 @@ Credentials live in your local SQLite, masked in the UI (`•••`) and never 
 | **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards. **You always fire the final shot.** leadhound is a radar + copilot, *not* an auto-bidder. |
 | **Client intel** | Cross-references your own gig history: repeat posters and repeat lowballers get flagged before you spend a minute on the draft. |
 | **Learning loop** | `leadhound mark <id> won/lost/replied` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The tool gets sharper the longer you hunt. |
-| **Web dashboard** | `leadhound web` — a login-protected kanban board of your pipeline: create an account, connect sources in the ⚙ drawer, fetch gigs, drag pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Accounts, sessions and per-source configs are stored locally in SQLite. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
+| **Web dashboard** | `leadhound web` — a login-protected kanban board of your pipeline: create an account, connect job sites in the accounts tab (setup wizards included), fetch gigs, drag pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Accounts, sessions and per-source configs are stored locally in SQLite. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
 | **GitHub recon** | `leadhound profile learn <you>` — scans your public repos, ranks the languages/topics you actually ship, and merges them into your skills list. Zero-config personalization. |
 | **Data export** | `leadhound export --format csv\|json` — your whole gig history as clean rows for spreadsheets, scripts or your CRM. No lock-in. |
 
@@ -274,6 +274,7 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] `leadhound export` — CSV/JSON of the whole pipeline
 - [x] **Real backend** — FastAPI REST API, login system, per-account data
 - [x] **Source connectors** — Freelancer.com, Upwork (OAuth2), Fiverr (beta), custom RSS
+- [x] **Accounts hub** — connection state, setup wizards, save & test probing, radar heartbeat
 - [ ] Hosted SaaS mode — same core, multi-tenant cloud deploy (the account + connector schema is already shaped for it)
 - [ ] Proposal A/B testing — two drafts, track which tone wins
 - [ ] Agency mode — monitor a bench of freelancer profiles

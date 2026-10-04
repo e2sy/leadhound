@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leadhound"
-version = "0.5.0"
+version = "0.6.0"
 description = "The gig sniper — watches freelance job boards, scores every gig against YOUR profile, drafts the proposal in your voice. You just approve and send."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -23,9 +23,14 @@ even at 3am.*
 
 ---
 
-<!-- 🎬 DEMO: record `asciinema rec demo.cast` -> `agg demo.cast demo.gif` -> upload to this repo, then uncomment:
-<img src="docs/demo.gif" alt="leadhound terminal demo" width="100%">
--->
+<p align="center">
+  <img src="docs/screenshot.png" alt="leadhound dashboard — kanban pipeline with score rings" width="100%">
+</p>
+
+<p align="center">
+  <em>Approve → send → mark outcomes. The board is your entire pipeline, one command away: <code>leadhound web</code></em><br>
+  <img src="docs/demo.gif" alt="leadhound dashboard demo — approve a gig, filter by keyword" width="720">
+</p>
 
 ## ⚡ Quickstart
 

@@ -41,16 +41,19 @@ leadhound doctor    # pre-flight check: config, profile, feeds, db
 leadhound demo      # offline test: injects sample gigs (incl. red-flag traps)
 leadhound queue     # review: approve / reject — drafts ready to send
 leadhound digest    # morning briefing: the best gigs from the last 24h
+leadhound web       # dashboard: kanban pipeline + draft editor in your browser
 
 leadhound watch                  # go live: poll real job feeds once
 leadhound watch --loop           # or keep watching on an interval
 leadhound watch --min-score 80   # only the cream
 leadhound telegram               # push gig cards to your phone
 leadhound webhooks               # push gig cards to Discord / Slack
-leadhound mark 42 won            # record outcomes — the scope learns
+leadhound profile learn e2sy     # scan your GitHub, auto-tune the skills list
+leadhound export --format csv    # your pipeline, out to a spreadsheet
+leadhound mark 42 won            # record outcomes — the scope learns 🐺
 ```
 
-**60-second demo with zero setup:** `leadhound demo && leadhound queue` — works fully offline. This is the exact path the launch video uses.
+**60-second demo with zero setup:** `leadhound demo && leadhound queue` — works fully offline. Want the visual? `leadhound demo && leadhound web` opens a dark kanban dashboard of your whole pipeline. These are the exact paths the launch video uses.
 
 ## 😩 The problem
 
@@ -86,6 +89,9 @@ leadhound replaces all of that with one local watcher that never sleeps and a vo
 | **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards. **You always fire the final shot.** leadhound is a radar + copilot, *not* an auto-bidder. |
 | **Client intel** | Cross-references your own gig history: repeat posters and repeat lowballers get flagged before you spend a minute on the draft. |
 | **Learning loop** | `leadhound mark <id> won/lost/replied` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The tool gets sharper the longer you hunt. |
+| **Web dashboard** | `leadhound web` — a local, zero-dependency kanban board of your pipeline: drag gigs pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
+| **GitHub recon** | `leadhound profile learn <you>` — scans your public repos, ranks the languages/topics you actually ship, and merges them into your skills list. Zero-config personalization. |
+| **Data export** | `leadhound export --format csv\|json` — your whole gig history as clean rows for spreadsheets, scripts or your CRM. No lock-in. |
 
 ## 🛡️ ToS-safe by design
 
@@ -185,8 +191,10 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] HN "freelancer wanted" source (public Algolia API)
 - [x] Discord + Slack webhook notifications
 - [x] Native one-file builds (Windows `.exe` / macOS / Linux) — attached to every release
+- [x] Web dashboard — local kanban pipeline board + in-browser draft editor (`leadhound web`)
+- [x] `leadhound profile learn` — auto-tune your skills from your public GitHub
+- [x] `leadhound export` — CSV/JSON of the whole pipeline
 - [ ] More sources (niche boards) as community plugins
-- [ ] Web dashboard with pipeline analytics
 - [ ] Proposal A/B testing — two drafts, track which tone wins
 - [ ] Agency mode — monitor a bench of freelancer profiles
 

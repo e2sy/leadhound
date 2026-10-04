@@ -1,9 +1,10 @@
 """Embedded single-page app served by leadhound.api.
 
 Vanilla HTML/CSS/JS — no CDN, no build step, works fully offline.
-v3: view switcher (board / accounts), full-page Accounts hub with
-per-source connection state badges, setup wizards (Upwork keys + OAuth,
-Fiverr cookie), save-&-test probing and honest last-run status lines.
+v4: the sniper — 🎯 snipe button on every gig card with a fire dialog
+(Freelancer.com live-fire real bids via the linked account, honest snipe
+kit everywhere else), sniped column with audit badges, snipe stats chips,
+and the Freelancer.com account-link card with OAuth wizard.
 All user-controlled strings are HTML-escaped with esc() before insertion.
 """
 
@@ -188,6 +189,34 @@ PAGE = r"""<!DOCTYPE html>
          border-radius:10px; padding:8px 14px; font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,.5)}
   .toast.err{border-color:var(--red)}
 
+  /* ---------------- snipe dialog ---------------- */
+  button.snipebtn{border-color:rgba(227,179,65,.55); color:var(--amber); font-weight:600}
+  button.snipebtn:hover{background:rgba(227,179,65,.12); color:var(--amber)}
+  #snipeModal{position:fixed; inset:0; z-index:45; background:rgba(0,0,0,.62);
+              display:flex; align-items:center; justify-content:center}
+  #snipeModal[hidden]{display:none}
+  .sbox{width:540px; max-width:94vw; max-height:88vh; overflow-y:auto; background:var(--panel);
+        border:1px solid var(--line); border-radius:14px; padding:16px 18px;
+        box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .sbox h3{font-size:15px; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .ssub{font-size:11.5px; color:var(--dim); margin-bottom:8px}
+  .smode{font-size:12px; margin:8px 0; color:var(--dim); border:1px dashed var(--line);
+         border-radius:9px; padding:8px 10px}
+  .smode b{color:var(--amber)}
+  .smode.fire{border-color:rgba(248,81,73,.4)}
+  .smode.fire b{color:var(--red)}
+  .sbox label{display:block; font-size:11px; color:var(--dim); margin:8px 0 3px}
+  .sbox input{width:140px}
+  .srow{display:flex; gap:14px; flex-wrap:wrap}
+  .sbtns{display:flex; gap:8px; margin-top:14px}
+  .sbtns[hidden]{display:none}
+  #sApiFields[hidden]{display:none}
+  .sbtns .primary{padding:6px 14px}
+  button.fire{background:#b62324; border-color:#da3633; color:#fff; font-weight:700}
+  button.fire:hover{background:#da3633; color:#fff}
+  .snote{margin-top:9px; font-size:11px; color:var(--dim)}
+  .schip{font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--amber); color:var(--amber)}
+
   @media (max-width:920px){
     #board{grid-template-columns:repeat(4, minmax(270px, 1fr)); overflow-x:auto}
     .cards{max-height:none}
@@ -249,7 +278,9 @@ PAGE = r"""<!DOCTYPE html>
         <span class="grow"></span>
         <button class="primary" onclick="fetchNow()">⚡ fetch now</button></li>
       <li id="st3"><span class="tick"><b>3</b></span>
-        <span class="lbl">approve &amp; send from your board<small>drafts ready — you always fire the final shot</small></span></li>
+        <span class="lbl">snipe with your account<small>Freelancer.com live-fire bids · one-click kit everywhere else</small></span>
+        <span class="grow"></span>
+        <button onclick="showView('accounts')">🔗 link account</button></li>
     </ol>
     <div class="fine">the radar re-polls your sources every few minutes — sniping works while you sleep.</div>
     <div class="explore">just exploring? <a href="#" onclick="loadDemo(); return false;">load sample gigs</a></div>
@@ -274,16 +305,44 @@ PAGE = r"""<!DOCTYPE html>
 
 <div id="toasts"></div>
 
+<div id="snipeModal" hidden>
+  <div class="sbox">
+    <h3 id="sTitle"></h3>
+    <div class="ssub" id="sSub"></div>
+    <div class="smode" id="sMode"></div>
+    <label for="sText">proposal</label>
+    <textarea id="sText" style="min-height:150px"></textarea>
+    <div id="sApiFields" hidden>
+      <div class="srow">
+        <div><label for="sAmount">bid amount (USD)</label>
+          <input id="sAmount" type="number" min="1" step="1"></div>
+        <div><label for="sPeriod">delivery period (days)</label>
+          <input id="sPeriod" type="number" min="1" step="1" value="7"></div>
+      </div>
+    </div>
+    <div class="sbtns" id="sFireRow">
+      <button id="sFire" onclick="onSnipeFire()"></button>
+      <button onclick="closeSnipe()">cancel</button>
+    </div>
+    <div class="sbtns" id="sConfirmRow" hidden>
+      <button class="primary" onclick="onSnipeConfirm()">✓ sent it — mark sniped</button>
+      <button class="danger" onclick="closeSnipe()">cancel</button>
+    </div>
+    <div class="snote" id="sNote"></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const COLS = [
   {key:"pending",  label:"🎯 Pending"},
   {key:"approved", label:"✅ Approved"},
-  {key:"sent",     label:"📤 Sent"},
+  {key:"sent",     label:"🔥 Sniped"},
   {key:"rejected", label:"🗑 Rejected"},
 ];
 const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
-           demo:false, user:null, connectors:[], authMode:"login", view:"board"};
+           demo:false, user:null, connectors:[], authMode:"login", view:"board",
+           snipePlan:null, snipe:{}, linked:{}};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -362,6 +421,7 @@ async function load(){
     if(!r.ok) throw new Error("http " + r.status);
     const d = await r.json();
     S.jobs = d.jobs; S.cal = d.calibration || {}; S.demo = !!d.demo;
+    S.snipe = d.snipe || {}; S.linked = d.linked || {};
     render();
   }catch(e){
     $("#hintbar").textContent = "⚠ could not reach the leadhound server — is it still running?";
@@ -424,6 +484,82 @@ window.fetchNow = async () => {
 };
 window.loadDemo = () => post("/api/demo", {}, "sample gigs loaded ✓").then(() => { load(); showView("board"); });
 
+/* ------------------------------------------------- snipe flow */
+window.openSnipe = async id => {
+  let r, p;
+  try{ r = await fetch(`/api/jobs/${id}/snipe-plan`); }catch(e){ toast("request failed", true); return; }
+  if(r.status === 401){ boot(); return; }
+  p = await r.json().catch(() => ({}));
+  if(!r.ok){ toast(p.detail || ("http " + r.status), true); return; }
+  S.snipePlan = p;
+  renderSnipeDialog();
+};
+
+function renderSnipeDialog(){
+  const p = S.snipePlan;
+  const isApi = p.mode === "api";
+  $("#sTitle").textContent = p.source + " · " + (p.amount ? "$" + fmt(p.amount) : "budget TBD");
+  $("#sSub").textContent = "🎯 " + (isApi
+    ? "live-fire mode — the bid lands on Freelancer.com before you close this dialog"
+    : "kit mode — your proposal + the gig page, fired from your own logged-in session");
+  $("#sMode").className = "smode" + (isApi ? " fire" : "");
+  $("#sMode").innerHTML = isApi
+    ? `🔥 <b>live-fire</b> — a REAL bid will be placed on Freelancer.com${p.identity ? " as <b>@" + esc(p.identity.username) + "</b>" : ""} via the official API, on your account.`
+    : `🎯 leadhound copies your proposal and opens the gig — you paste &amp; send. ` +
+      (p.source === "freelancer" && !p.linked
+        ? `or <a href="#" onclick="closeSnipe(); showView('accounts'); return false;">link your Freelancer.com account</a> to fire real bids instead.`
+        : "");
+  $("#sText").value = p.text || "";
+  $("#sApiFields").hidden = !isApi;
+  $("#sAmount").value = p.amount || "";
+  $("#sPeriod").value = p.period || 7;
+  $("#sFire").textContent = isApi ? "🔥 fire real bid" : "🎯 open gig + copy proposal";
+  $("#sFire").className = isApi ? "fire" : "primary";
+  $("#sFireRow").hidden = false;
+  $("#sConfirmRow").hidden = true;
+  $("#sNote").textContent = isApi
+    ? "bids are user-triggered only — leadhound never auto-bids in the background."
+    : "after you send it, mark the outcome (replied / won / lost) to calibrate the scope.";
+  $("#snipeModal").hidden = false;
+}
+
+window.closeSnipe = () => { $("#snipeModal").hidden = true; S.snipePlan = null; };
+
+window.onSnipeFire = async () => {
+  const p = S.snipePlan;
+  if(!p) return;
+  const text = $("#sText").value;
+  if(p.mode === "api"){
+    const btn = $("#sFire");
+    btn.disabled = true;
+    const d = await post(`/api/jobs/${p.id}/snipe`,
+      {amount: parseFloat($("#sAmount").value) || 0,
+       period: parseInt($("#sPeriod").value) || 7, text}, null);
+    btn.disabled = false;
+    if(!d) return;
+    closeSnipe();
+    toast(`🔥 REAL bid #${d.bid_id} placed on Freelancer.com ($${d.amount}) — good hunting!`);
+    load();
+  } else {
+    try{ await navigator.clipboard.writeText(text || ""); }
+    catch(e){ toast("clipboard blocked — copy the proposal from the dialog", true); }
+    window.open(p.url, "_blank", "noopener");
+    $("#sFireRow").hidden = true;
+    $("#sConfirmRow").hidden = false;
+    $("#sNote").textContent = "proposal copied + gig opened in a new tab. paste & send it there, then confirm below.";
+  }
+};
+
+window.onSnipeConfirm = async () => {
+  const p = S.snipePlan;
+  if(!p) return;
+  const d = await post(`/api/jobs/${p.id}/snipe-confirm`, {}, null);
+  if(!d) return;
+  closeSnipe();
+  toast("🎯 sniped — mark the outcome when they reply");
+  load();
+};
+
 function updateSteps(){
   const connected = S.connectors.some(c => c.enabled);
   const real = S.jobs.some(j => j.source !== "demo");
@@ -467,6 +603,9 @@ async function loadConnectors(){
 
 function connState(c){
   const st = c.status || {};
+  if(c.id === "freelancer_account" && (c.settings || {}).identity){
+    return {cls:"ok", txt:"✅ linked as @" + c.settings.identity.username};
+  }
   if(c.enabled && st.last_error) return {cls:"err", txt:"❌ error"};
   if(c.enabled && st.last_status === "ok") return {cls:"ok", txt:"✅ connected"};
   if(c.enabled) return {cls:"warn", txt:"🟡 on — not tested yet"};
@@ -475,17 +614,31 @@ function connState(c){
   return needs ? {cls:"warn", txt:"⚠ setup needed"} : {cls:"off", txt:"⚫ off"};
 }
 
+const OAUTH_CIDS = ["upwork", "freelancer_account"];
 const WIZARDS = {
+  freelancer_account: () => `
+    <details class="wiz"><summary>how to link Freelancer.com (2 min, official API — enables 🔥 live-fire bids)</summary>
+      <ol>
+        <li>create a free app at <a href="https://www.freelancer.com/developers/applications" target="_blank" rel="noopener noreferrer">freelancer.com/developers/applications</a></li>
+        <li>add this <b>redirect URI</b> to your app: <code>${esc(location.origin)}/api/connectors/freelancer_account/callback</code>
+            <button onclick="copyRuri('freelancer_account')">⧉ copy</button></li>
+        <li>paste the <b>client id</b> + <b>secret</b> above → 💾 save</li>
+        <li>hit 🔗 connect → approve in the Freelancer tab that opens</li>
+        <li>done — every Freelancer.com gig card now fires REAL bids on your account</li>
+      </ol>
+      <div class="warn">⚠ bids are placed on YOUR account with YOUR token, only when you click 🎯 snipe. leadhound never auto-bids in the background.</div>
+    </details>`,
   upwork: () => `
     <details class="wiz"><summary>how to connect Upwork (2 min, official API)</summary>
       <ol>
         <li>create a free app at <a href="https://www.upwork.com/developer/applications" target="_blank" rel="noopener noreferrer">upwork.com/developer/applications</a> — any name, "desktop app" type is fine</li>
         <li>add this <b>redirect URI</b> to your app: <code>${esc(location.origin)}/api/connectors/upwork/callback</code>
-            <button onclick="copyRuri()">⧉ copy</button></li>
+            <button onclick="copyRuri('upwork')">⧉ copy</button></li>
         <li>paste the <b>client id</b> + <b>secret</b> above → 💾 save</li>
         <li>hit 🔗 connect → approve in the Upwork tab that opens</li>
         <li>⚡ run now — real jobs land on your board, token auto-refreshes forever</li>
       </ol>
+      <div class="warn">⚠ Upwork's API doesn't let third-party apps submit proposals — sniping there uses the honest one-click kit (proposal copied + gig opened).</div>
     </details>`,
   fiverr: () => `
     <details class="wiz"><summary>how to get your Fiverr cookie (1 min)</summary>
@@ -546,7 +699,7 @@ function renderAccounts(){
         ${needsSave ? `<button onclick="saveConn('${esc(c.id)}')">💾 save</button>` : ""}
         <button onclick="toggleConn('${esc(c.id)}', ${!c.enabled})">${c.enabled ? "switch off" : "switch on"}</button>
         <button onclick="runConn('${esc(c.id)}')">⚡ ${needsSave ? "save & test" : "run now"}</button>
-        ${c.id === "upwork" ? `<button onclick="upworkConnect()">🔗 connect</button>` : ""}
+        ${OAUTH_CIDS.includes(c.id) ? `<button onclick="oauthConnect('${esc(c.id)}')">🔗 connect</button>` : ""}
         ${c.setup_url ? `<a href="${esc(c.setup_url)}" target="_blank" rel="noopener noreferrer">get keys ↗</a>` : ""}
       </div>
       ${wiz}
@@ -577,15 +730,15 @@ window.runConn = async cid => {
   else toast(cid + ": " + (d.new || 0) + " new gig(s) ✓");
   await load(); loadConnectors();
 };
-window.copyRuri = async () => {
-  const uri = location.origin + "/api/connectors/upwork/callback";
+window.copyRuri = async cid => {
+  const uri = location.origin + "/api/connectors/" + cid + "/callback";
   try{ await navigator.clipboard.writeText(uri); toast("redirect URI copied ✓"); }
   catch(e){ toast(uri); }
 };
-window.upworkConnect = async () => {
-  const d = await post("/api/connectors/upwork/auth/start", {}, null);
+window.oauthConnect = async cid => {
+  const d = await post(`/api/connectors/${cid}/auth/start`, {}, null);
   if(!d) return;
-  toast("authorize in the Upwork tab, then ⚡ save & test");
+  toast("authorize in the tab that opens, then ⚡ save & test");
   window.open(d.authorize_url, "_blank", "noopener");
 };
 
@@ -604,11 +757,14 @@ function chips(){
   const pend = S.jobs.filter(j => j.status === "pending").length;
   const won = S.jobs.filter(j => j.outcome === "won").length;
   const replied = S.jobs.filter(j => j.outcome === "replied").length;
+  const sn7 = S.snipe.sniped_7d || 0;
+  const rate = S.snipe.reply_rate;
   const bits = [
     `<span class="chip blue">${total} gigs tracked</span>`,
     `<span class="chip green">🔥 ${hot} hot</span>`,
     `<span class="chip">${pend} pending</span>`,
-    `<span class="chip amber">↩ ${replied} replied</span>`,
+    `<span class="chip amber">🎯 ${sn7} sniped · 7d</span>`,
+    (rate != null ? `<span class="chip amber">↩ ${rate}% reply rate</span>` : `<span class="chip amber">↩ ${replied} replied</span>`),
     `<span class="chip green">🏆 ${won} won</span>`,
   ];
   $("#chips").innerHTML = bits.join("");
@@ -629,14 +785,20 @@ function card(j){
     `<span class="chip">${esc(t)}</span>`).join("");
   const ob = j.outcome
     ? `<span class="obadge o-${esc(j.outcome)}">${esc(j.outcome)}</span>` : "";
+  const sbadge = j.snipe_method === "freelancer-api"
+    ? `<span class="schip" title="${esc(j.snipe_note || "")}">🔥 live-fire bid</span>`
+    : j.snipe_method === "kit"
+      ? `<span class="schip" title="${esc(j.snipe_note || "")}">🎯 kit</span>` : "";
   const open = S.editing === j.id;
 
   let acts = "";
   if(j.status === "pending")
-    acts = `<button onclick="act(${j.id},'approved')">✓ approve</button>
+    acts = `<button class="snipebtn" onclick="openSnipe(${j.id})">🎯 snipe</button>
+            <button onclick="act(${j.id},'approved')">✓ approve</button>
             <button onclick="act(${j.id},'rejected')">✗ reject</button>`;
   else if(j.status === "approved")
-    acts = `<button onclick="act(${j.id},'sent')">➤ mark sent</button>
+    acts = `<button class="snipebtn" onclick="openSnipe(${j.id})">🎯 snipe</button>
+            <button onclick="act(${j.id},'sent')">➤ mark sent</button>
             <button onclick="act(${j.id},'rejected')">✗ reject</button>`;
   else if(j.status === "sent")
     acts = `<select onchange="setOutcome(${j.id}, this.value)">
@@ -653,7 +815,7 @@ function card(j){
     <div class="row">
       <div class="ring" style="border-color:${ringColor(j.score)};color:${ringColor(j.score)}">${j.score}</div>
       <div style="min-width:0">
-        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}</div>
+        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}</div>
         <div class="meta">
           <span class="chip blue">${esc(j.source)}</span>
           ${m ? `<span class="chip amber">$${esc(m).replace("$","")}</span>` : ""}

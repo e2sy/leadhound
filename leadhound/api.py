@@ -71,6 +71,9 @@ def job_to_dict(j: db.Job) -> dict:
         "status": j.status,
         "draft": j.draft,
         "outcome": j.outcome,
+        "sniped_at": j.sniped_at,
+        "snipe_method": j.snipe_method,
+        "snipe_note": j.snipe_note,
         "intel": intel.intel_for(j),
     }
 

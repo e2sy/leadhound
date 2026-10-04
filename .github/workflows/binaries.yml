@@ -88,13 +88,15 @@ jobs:
           "$BIN" >/tmp/lh-launch.log 2>&1 &
           PID=$!
           UP=0
+          STATE=""
           for i in $(seq 1 25); do
             if curl -sf http://127.0.0.1:7800/api/state >/dev/null 2>&1; then UP=1; break; fi
             sleep 1
           done
+          if [ "$UP" = "1" ]; then STATE=$(curl -sf http://127.0.0.1:7800/api/state || true); fi
           kill $PID 2>/dev/null || true
           if [ "$UP" != "1" ]; then echo "dashboard never came up"; tail -20 /tmp/lh-launch.log; exit 1; fi
-          curl -sf http://127.0.0.1:7800/api/state | grep -q '"demo": true'
+          echo "$STATE" | grep -q '"demo": true'
           echo "LAUNCH OK (auto-init + demo seed + dashboard)"
 
       - name: Launch test — no args = app (windows)

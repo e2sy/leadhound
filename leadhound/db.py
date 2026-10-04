@@ -216,6 +216,18 @@ def stats() -> dict:
         out[st] = row["n"]
     row = c.execute("SELECT COUNT(*) AS n, MAX(score) AS hi FROM jobs").fetchone()
     out["total"], out["highest_score"] = row["n"], row["hi"]
+    inplay = c.execute(
+        """
+        SELECT COUNT(*) AS n, COALESCE(SUM(budget_max), 0) AS v
+        FROM jobs WHERE status IN ('approved', 'sent') AND outcome IS NULL
+        """
+    ).fetchone()
+    out["inplay_n"], out["inplay_value"] = inplay["n"], inplay["v"]
+    won = c.execute(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(budget_max), 0) AS v "
+        "FROM jobs WHERE outcome = 'won'"
+    ).fetchone()
+    out["won_n"], out["won_value"] = won["n"], won["v"]
     c.close()
     return out
 

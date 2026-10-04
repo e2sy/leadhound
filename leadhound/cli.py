@@ -252,10 +252,12 @@ def cmd_stats(args) -> None:
         f"[bold]{k}[/bold]: {v['n']} (avg {v['avg_score']})" for k, v in cal.items()
     ) or "—"
     console.print(Panel.fit(
-        f"Total gigs seen: [bold]{s['total']}[/bold]\n"
-        f"Highest score:   [bold]{s['highest_score']}[/bold]\n"
+        f"Total gigs seen: [bold]{s['total']}[/bold]   Highest score: [bold]{s['highest_score']}[/bold]\n"
         f"Pending:  {s['pending']}   Approved: {s['approved']}\n"
         f"Rejected: {s['rejected']}   Sent:     {s['sent']}\n\n"
+        f"[bold]In play[/bold]  {s['inplay_n']} gig(s) · ${s['inplay_value']:,.0f}"
+        " potential (fixed-price only)\n"
+        f"[bold]Won[/bold]      {s['won_n']} gig(s) · ${s['won_value']:,.0f}\n\n"
         f"[bold]Outcomes[/bold]  {cal_line}\n"
         f"[dim]↳ {hint}[/dim]",
         title="leadhound stats",
@@ -343,15 +345,21 @@ def cmd_web(args) -> None:
 
 def cmd_mark(args) -> None:
     _require_init()
+    from .victory import build_victory_text
+
     job = db.get_job(args.id)
     if not job:
         console.print("[red]No such job.[/red]")
         raise SystemExit(1)
     db.set_outcome(args.id, args.outcome)
-    console.print(
-        f"[green]Marked #{args.id} as {args.outcome}.[/green] "
-        "Run [bold]leadhound stats[/bold] to see the scope calibrate."
-    )
+    if args.outcome == "won":
+        console.print(Panel(build_victory_text(job), border_style="green", title="🏆 winner"))
+        console.print("Run [bold]leadhound stats[/bold] to see your won-value climb.")
+    else:
+        console.print(
+            f"[green]Marked #{args.id} as {args.outcome}.[/green] "
+            "Run [bold]leadhound stats[/bold] to see the scope calibrate."
+        )
 
 
 # --------------------------------------------------------------------- parser

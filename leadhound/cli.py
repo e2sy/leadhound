@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from . import db
+from . import __version__, db
 from .config import (
     init_files,
     is_initialized,
@@ -368,6 +368,7 @@ def main() -> None:
         prog="leadhound",
         description="The gig sniper — job boards watched 24/7, proposals drafted in your voice.",
     )
+    p.add_argument("--version", action="version", version=f"leadhound {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="create ~/.leadhound with config + profile").set_defaults(fn=cmd_init)

@@ -67,6 +67,18 @@ class TestHealth:
         assert r.json()["ok"] is True
         assert r.json()["version"]
 
+    def test_radar_requires_login(self, client):
+        assert client.get("/api/radar").status_code == 401
+
+    def test_radar_status_shape(self, authed):
+        r = authed.get("/api/radar")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["running"] is False  # TestClient boots without the poller
+        assert "interval_minutes" in d and "enabled_sources" in d
+        assert d["enabled_sources"] == 0
+
     def test_root_serves_html(self, client):
         r = client.get("/")
         assert r.status_code == 200

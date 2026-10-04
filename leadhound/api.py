@@ -11,6 +11,7 @@ FastAPI + your local SQLite. Every dashboard route is account-scoped:
     /api/connectors/{id}         save enabled/settings
     /api/connectors/{id}/run     fetch that one source now
     /api/fetch                   fetch every enabled source now
+    /api/radar                   poller status: running, interval, enabled count
     /                            the single-page dashboard
 
 A daemon poller re-runs enabled connectors every interval (default 15 min,
@@ -191,6 +192,9 @@ def fetch_all_for(user_id: int) -> list[dict]:
 
 
 # ------------------------------------------------------------------- poller
+_poller_state = {"running": False, "interval": 0}
+
+
 def _last_run_age_min(cfg: dict) -> float:
     raw = cfg.get("last_run")
     if not raw:
@@ -250,12 +254,17 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
     async def lifespan(_app: FastAPI):
         thread = None
         if start_poller:
+            _poller_state["running"] = True
+            _poller_state["interval"] = max(
+                POLL_FLOOR_MIN, int(watch_cfg.interval_minutes)
+            )
             thread = threading.Thread(
                 target=_poll_loop, args=(stop_event, watch_cfg.interval_minutes),
                 daemon=True, name="lh-poller",
             )
             thread.start()
         yield
+        _poller_state["running"] = False
         stop_event.set()
 
     app = FastAPI(title="leadhound", version=__version__, lifespan=lifespan)
@@ -296,6 +305,20 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True, "version": __version__}
+
+    @app.get("/api/radar")
+    def radar(request: Request) -> dict:
+        """Is the sniping radar actually hunting? Honest visibility into the poller."""
+        user = _user(request)
+        enabled = sum(
+            1 for cfg in db.connector_cfgs(user["id"]).values() if cfg.get("enabled")
+        )
+        return {
+            "ok": True,
+            "running": _poller_state["running"],
+            "interval_minutes": _poller_state["interval"],
+            "enabled_sources": enabled,
+        }
 
     # ---------------------------------------------------------------- auth
     @app.post("/api/auth/register")

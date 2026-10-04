@@ -317,6 +317,23 @@ def cmd_profile(args) -> None:
         "The next [bold]leadhound watch[/bold] scores gigs with them."
     )
 
+def cmd_export(args) -> None:
+    _require_init()
+    from . import exporter
+
+    try:
+        if args.out:
+            n = exporter.export_to_file(args.format, args.out, args.status, args.min_score)
+            console.print(f"[green]Exported {n} gig(s) -> {args.out}[/green]")
+        elif args.format == "json":
+            console.print_json(exporter.export_json(args.status, args.min_score))
+        else:
+            console.print(exporter.export_csv(args.status, args.min_score))
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1) from None
+
+
 def cmd_web(args) -> None:
     _require_init()
     from .web import serve  # local import: keeps CLI startup fast
@@ -392,6 +409,14 @@ def main() -> None:
     webp.add_argument("--port", type=int, default=7800, help="port (default 7800)")
     webp.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
     webp.set_defaults(fn=cmd_web)
+
+    ex = sub.add_parser("export", help="export your pipeline to CSV or JSON")
+    ex.add_argument("--format", choices=("csv", "json"), default="csv")
+    ex.add_argument("--out", type=str, default=None, help="write to a file instead of stdout")
+    ex.add_argument("--status", default="all",
+                    help="all / pending / approved / sent / rejected (default all)")
+    ex.add_argument("--min-score", type=int, default=0)
+    ex.set_defaults(fn=cmd_export)
 
     mk = sub.add_parser("mark", help="record a gig outcome: replied / won / lost")
     mk.add_argument("id", type=int)

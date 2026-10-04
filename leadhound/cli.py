@@ -1,4 +1,4 @@
-"""leadhound CLI — init, demo, watch, queue, show, telegram, stats, web, doctor."""
+"""leadhound CLI — init, demo, watch, queue, show, telegram, stats, web, profile, doctor."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from .config import (
     is_initialized,
     load_config,
     load_profile,
+    profile_path,
 )
 from .demo import DEMO_JOBS
 from .digest import cmd_digest
@@ -261,6 +262,61 @@ def cmd_stats(args) -> None:
     ))
 
 
+def cmd_profile(args) -> None:
+    _require_init()
+    import urllib.error
+
+    from . import learn
+
+    p_text = profile_path().read_text()
+    profile = load_profile()
+    try:
+        detected = learn.learn_skills(args.github)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1) from None
+    except urllib.error.HTTPError as e:
+        msg = ("rate-limited by GitHub — try again in an hour"
+               if e.code == 403 else f"GitHub said HTTP {e.code}")
+        console.print(f"[red]{msg}[/red]")
+        raise SystemExit(1) from None
+    except urllib.error.URLError as e:
+        console.print(f"[red]GitHub unreachable: {e.reason}[/red]")
+        raise SystemExit(1) from None
+
+    console.print(Panel.fit(
+        f"[bold]{detected['name']}[/bold] (@{detected['user']}) — "
+        f"{detected['repos_scanned']} public repos scanned\n"
+        + (f"[dim]{detected['bio']}[/dim]\n\n" if detected["bio"] else "")
+        + f"[bold]Top skills:[/bold] {', '.join(detected['languages'][: args.top]) or '—'}"
+        + (f"\n[bold]Topics:[/bold] {', '.join(detected['topics'][: 5])}" if detected["topics"] else ""),
+        title="GitHub recon",
+    ))
+
+    candidates = detected["languages"][: args.top] + detected["topics"][: args.top]
+    merged = learn.merge_skills(profile.skills, candidates)
+    added = [s for s in merged if s not in profile.skills]
+
+    if not added:
+        console.print("[green]Your profile already covers every skill GitHub revealed.[/green]")
+        return
+
+    if args.dry_run:
+        console.print(f"[bold]Would add to profile.toml:[/bold] {', '.join(added)}")
+        console.print("[dim]dry run — nothing written. Drop --dry-run to apply.[/dim]")
+        return
+
+    new_text, ok = learn.update_profile_skills(p_text, merged)
+    if not ok:
+        console.print("[red]Couldn't find the skills block in profile.toml — add manually:[/red]")
+        console.print(f"  {', '.join(added)}")
+        return
+    profile_path().write_text(new_text)
+    console.print(
+        f"[green]Added {len(added)} skill(s) to profile.toml:[/green] {', '.join(added)}\n"
+        "The next [bold]leadhound watch[/bold] scores gigs with them."
+    )
+
 def cmd_web(args) -> None:
     _require_init()
     from .web import serve  # local import: keeps CLI startup fast
@@ -317,6 +373,16 @@ def main() -> None:
 
     st = sub.add_parser("stats", help="pipeline stats + score calibration")
     st.set_defaults(fn=cmd_stats)
+
+    pr = sub.add_parser("profile", help="show or tune your sniper profile")
+    pr_sub = pr.add_subparsers(dest="profile_cmd", required=True)
+    pl = pr_sub.add_parser(
+        "learn", help="read a public GitHub profile and merge its skills into profile.toml"
+    )
+    pl.add_argument("github", help="username or profile URL (e.g. e2sy or https://github.com/e2sy)")
+    pl.add_argument("--dry-run", action="store_true", help="preview added skills; don't write")
+    pl.add_argument("--top", type=int, default=8, help="max skills pulled from GitHub (default 8)")
+    pr.set_defaults(fn=cmd_profile)
 
     webp = sub.add_parser(
         "web", help="open the local pipeline dashboard in your browser"

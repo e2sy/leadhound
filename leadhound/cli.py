@@ -1,4 +1,4 @@
-"""leadhound CLI — init, demo, watch, queue, show, telegram, stats, doctor."""
+"""leadhound CLI — init, demo, watch, queue, show, telegram, stats, web, doctor."""
 
 from __future__ import annotations
 
@@ -261,6 +261,13 @@ def cmd_stats(args) -> None:
     ))
 
 
+def cmd_web(args) -> None:
+    _require_init()
+    from .web import serve  # local import: keeps CLI startup fast
+
+    serve(host=args.host, port=args.port, open_browser=not args.no_browser)
+
+
 def cmd_mark(args) -> None:
     _require_init()
     job = db.get_job(args.id)
@@ -310,6 +317,15 @@ def main() -> None:
 
     st = sub.add_parser("stats", help="pipeline stats + score calibration")
     st.set_defaults(fn=cmd_stats)
+
+    webp = sub.add_parser(
+        "web", help="open the local pipeline dashboard in your browser"
+    )
+    webp.add_argument("--host", default="127.0.0.1",
+                      help="bind address (default 127.0.0.1; use 0.0.0.0 for your phone)")
+    webp.add_argument("--port", type=int, default=7800, help="port (default 7800)")
+    webp.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
+    webp.set_defaults(fn=cmd_web)
 
     mk = sub.add_parser("mark", help="record a gig outcome: replied / won / lost")
     mk.add_argument("id", type=int)

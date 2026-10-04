@@ -159,6 +159,33 @@ def pending_unnotified(min_score: int = 0, limit: int = 20) -> list[Job]:
     return [Job(**dict(r)) for r in rows]
 
 
+def all_jobs(limit: int = 300) -> list[Job]:
+    """Every tracked gig, best first — the dashboard feed."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM jobs ORDER BY score DESC, id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    c.close()
+    return [Job(**dict(r)) for r in rows]
+
+
+def set_draft(job_id: int, text: str) -> None:
+    """Overwrite the proposal draft (dashboard editor)."""
+    c = _conn()
+    c.execute("UPDATE jobs SET draft = ? WHERE id = ?", (text, job_id))
+    c.commit()
+    c.close()
+
+
+def clear_outcome(job_id: int) -> None:
+    """Undo an outcome marking (dashboard)."""
+    c = _conn()
+    c.execute("UPDATE jobs SET outcome = NULL, outcome_at = NULL WHERE id = ?", (job_id,))
+    c.commit()
+    c.close()
+
+
 def recent_jobs(hours: int = 24, min_score: int = 0, limit: int = 5) -> list[Job]:
     """Best gigs fetched within the last N hours — the digest feed."""
     c = _conn()

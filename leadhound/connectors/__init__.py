@@ -5,13 +5,16 @@ Built-in sources:
     hackernews, freelancer
   * bring-your-own: upwork (OAuth2 app keys), fiverr (session cookie, beta),
     rss (any RSS/Atom job feed URL)
+  * account link (no gigs — arms the sniper): freelancer_account links the
+    user's own Freelancer.com account via official OAuth so 🎯 snipe can
+    place real bids with their credentials
 """
 
 from __future__ import annotations
 
 from ..watchers import hn as _hn
 from ..watchers import rss as _rss
-from . import fiverr, freelancer, rss_custom, upwork
+from . import fiverr, freelancer, freelancer_account, rss_custom, upwork
 from .base import Connector, Field
 
 
@@ -58,6 +61,23 @@ REGISTRY: dict[str, Connector] = {
             blurb="Live search over Freelancer.com's public API — real budgets, no login.",
             fields=[Field("query", "Search keywords", placeholder="react nextjs")],
             fetch=freelancer.fetch,
+        ),
+        Connector(
+            id="freelancer_account",
+            label="Freelancer.com account (snipe)",
+            kind="keys",
+            blurb=(
+                "Links YOUR Freelancer.com account via official OAuth so the "
+                "🎯 snipe button places real bids with your credentials. "
+                "Gig hunting stays on the Freelancer.com source card — this "
+                "link never fetches gigs, it fires shots."
+            ),
+            fields=[
+                Field("client_id", "OAuth client id", placeholder="freelancer app client id"),
+                Field("client_secret", "OAuth client secret", secret=True),
+            ],
+            setup_url="https://www.freelancer.com/developers/applications",
+            fetch=freelancer_account.fetch,
         ),
         Connector(
             id="upwork",

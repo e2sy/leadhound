@@ -74,3 +74,36 @@ class TestStats:
         assert s["total"] == 2
         assert s["pending"] == 1 and s["rejected"] == 1
         assert s["highest_score"] == 91
+
+
+class TestSnipes:
+    def test_mark_sniped_writes_audit_trail(self):
+        db.ensure_db()
+        rid, _ = db.upsert_job(_job("sn-1"), 88, {}, "draft")
+        db.mark_sniped(rid, "freelancer-api", "bid #424242")
+        job = db.get_job(rid)
+        assert job.status == "sent"
+        assert job.snipe_method == "freelancer-api"
+        assert job.snipe_note == "bid #424242"
+        assert job.sniped_at is not None
+
+    def test_snipe_stats_counts_and_rates(self):
+        db.ensure_db()
+        a, _ = db.upsert_job(_job("sn-a"), 90, {}, "")
+        b, _ = db.upsert_job(_job("sn-b"), 85, {}, "")
+        c, _ = db.upsert_job(_job("sn-c"), 80, {}, "")
+        for rid in (a, b, c):
+            db.mark_sniped(rid, "kit", "confirmed")
+        db.set_outcome(b, "replied")
+        db.set_outcome(c, "won")
+        s = db.snipe_stats()
+        assert s["sniped_total"] == 3
+        assert s["sniped_7d"] == 3
+        assert s["replies"] == 2  # replied + won
+        assert s["wins"] == 1
+        assert s["reply_rate"] == 66.7
+
+    def test_snipe_stats_empty_scope(self):
+        db.ensure_db()
+        s = db.snipe_stats()
+        assert s["sniped_total"] == 0 and s["reply_rate"] is None

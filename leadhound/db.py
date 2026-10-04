@@ -31,6 +31,9 @@ class Job:
     draft: str = ""
     outcome: str | None = None
     outcome_at: str | None = None
+    sniped_at: str | None = None
+    snipe_method: str | None = None
+    snipe_note: str | None = None
     user_id: int | None = None
 
     @property
@@ -75,7 +78,10 @@ def ensure_db() -> None:
             notified INTEGER DEFAULT 0,
             draft TEXT DEFAULT '',
             outcome TEXT,
-            outcome_at TEXT
+            outcome_at TEXT,
+            sniped_at TEXT,
+            snipe_method TEXT,
+            snipe_note TEXT
         )
         """
     )
@@ -94,6 +100,12 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN outcome_at TEXT")
     if "user_id" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN user_id INTEGER")
+    if "sniped_at" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN sniped_at TEXT")
+    if "snipe_method" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN snipe_method TEXT")
+    if "snipe_note" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN snipe_note TEXT")
 
 
 def _ensure_accounts(c: sqlite3.Connection) -> None:
@@ -391,6 +403,23 @@ def set_status(job_id: int, status: str) -> None:
     c.close()
 
 
+def mark_sniped(job_id: int, method: str, note: str = "") -> None:
+    """The shot was fired: status -> sent with an honest audit trail.
+
+    method is 'freelancer-api' (a real bid was placed) or 'kit' (proposal
+    copied + gig opened, user confirmed the send). note carries the platform
+    bid id or the confirmation context.
+    """
+    c = _conn()
+    c.execute(
+        "UPDATE jobs SET status = 'sent', sniped_at = datetime('now'), "
+        "snipe_method = ?, snipe_note = ? WHERE id = ?",
+        (method, note, job_id),
+    )
+    c.commit()
+    c.close()
+
+
 def pending_unnotified(
     min_score: int = 0, limit: int = 20, user_id: int | None = None
 ) -> list[Job]:
@@ -500,6 +529,44 @@ def set_outcome(job_id: int, outcome: str) -> None:
     )
     c.commit()
     c.close()
+
+
+def snipe_stats(user_id: int | None = None) -> dict:
+    """Firing + result stats for the sniper: shots fired, replies, wins.
+
+    reply_rate counts (replied + won) against every sniped gig — the number
+    a sniper actually cares about.
+    """
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+    row = c.execute(
+        "SELECT COUNT(*) AS n FROM jobs WHERE status = 'sent' "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
+    ).fetchone()
+    out = {"sniped_total": row["n"]}
+    row = c.execute(
+        "SELECT COUNT(*) AS n FROM jobs WHERE status = 'sent' "
+        "AND sniped_at >= datetime('now', '-7 days') "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
+    ).fetchone()
+    out["sniped_7d"] = row["n"]
+    rows = c.execute(
+        "SELECT outcome, COUNT(*) AS n FROM jobs WHERE outcome IN ('replied','won') "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY outcome",
+        (flag, uid),
+    ).fetchall()
+    by = {r["outcome"]: r["n"] for r in rows}
+    out["replies"] = by.get("replied", 0) + by.get("won", 0)
+    out["wins"] = by.get("won", 0)
+    out["reply_rate"] = (
+        round(100 * out["replies"] / out["sniped_total"], 1)
+        if out["sniped_total"]
+        else None
+    )
+    c.close()
+    return out
 
 
 def calibration() -> dict:

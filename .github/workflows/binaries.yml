@@ -33,9 +33,47 @@ jobs:
       - name: Build one-file binary
         run: pyinstaller --onefile --clean --name leadhound-${{ matrix.name }} entry.py
 
-      - name: Smoke test the binary (linux only)
-        if: matrix.name == 'linux-x64'
-        run: ./dist/leadhound-linux-x64 --help
+      - name: Smoke test the binary (linux + macos)
+        if: matrix.name != 'windows-x64'
+        env:
+          LEADHOUND_HOME: ${{ runner.temp }}/lh-home
+          PYTHONIOENCODING: utf-8
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=./dist/leadhound-${{ matrix.name }}
+          "$BIN" --help
+          "$BIN" init
+          "$BIN" doctor --offline
+          "$BIN" demo
+          "$BIN" queue --list
+          "$BIN" show 1
+          "$BIN" mark 1 replied
+          "$BIN" stats
+          "$BIN" export --format csv
+          "$BIN" digest
+          echo "SMOKE OK"
+
+      - name: Smoke test the binary (windows)
+        if: matrix.name == 'windows-x64'
+        env:
+          LEADHOUND_HOME: ${{ runner.temp }}\lh-home
+          PYTHONIOENCODING: utf-8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $BIN = "./dist/leadhound-windows-x64.exe"
+          & $BIN --help
+          & $BIN init
+          & $BIN doctor --offline
+          & $BIN demo
+          & $BIN queue --list
+          & $BIN show 1
+          & $BIN mark 1 replied
+          & $BIN stats
+          & $BIN export --format csv
+          & $BIN digest
+          Write-Host "SMOKE OK"
 
       - name: Upload workflow artifact (always, for debugging)
         uses: actions/upload-artifact@v4

@@ -3,6 +3,16 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.3.1] - 2026-10-04
+
+The "it doesn't vanish anymore" release. Fixes the frozen exe flashing away on double-click.
+
+### Fixed
+- **Double-click welcome.** Launching the binary with no arguments used to print an argparse error and close the console before anyone could read it. It now shows a welcome screen with the exact commands to run, and waits for Enter.
+- **Crash catcher.** Any unexpected error now prints a full traceback plus an issue link and holds the window open (frozen builds only) — no more invisible crashes.
+- **UTF-8 console.** stdout/stderr are reconfigured to UTF-8 in frozen builds, so rich tables, emoji and pipes/redirects on Windows (cp1252) can no longer raise `UnicodeEncodeError`.
+- **Real smoke tests.** The Binaries workflow now *executes* each binary on real Windows, macOS and Linux runners before attaching it to a release: `init → doctor --offline → demo → queue --list → show → mark → stats → export → digest`. A broken exe can no longer ship.
+
 ## [0.3.0] - 2026-10-04
 
 The dashboard release. leadhound gets a face — and a memory of what you're good at.

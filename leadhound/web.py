@@ -57,9 +57,11 @@ def build_state() -> dict:
     db.ensure_db()
     cal = db.calibration()  # includes "hint"
     jobs = db.all_jobs(limit=300)
+    demo = bool(jobs) and all(j.source == "demo" for j in jobs)
     return {
         "stats": db.stats(),
         "calibration": cal,
+        "demo": demo,
         "jobs": [job_to_dict(j) for j in jobs],
     }
 

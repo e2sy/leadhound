@@ -75,7 +75,8 @@ class TestState:
         _seed("s1", 90, "Hot gig")
         _seed("s2", 40, "Cold gig", status="rejected")
         st = build_state()
-        assert set(st) == {"stats", "calibration", "jobs"}
+        assert set(st) == {"stats", "calibration", "jobs", "demo"}
+        assert st["demo"] is False  # real sources, not demo data
         assert st["stats"]["total"] == 2
         assert st["jobs"][0]["title"] == "Hot gig"  # best first
         j = st["jobs"][0]

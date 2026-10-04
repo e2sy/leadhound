@@ -52,7 +52,7 @@ def cmd_init(args) -> None:
     ))
 
 
-def _process(jobs: list[dict], min_score: int, notify: bool) -> None:
+def _process(jobs: list[dict], min_score: int, notify: bool, quiet: bool = False) -> None:
     """Score → draft → store → optionally push to Telegram."""
     profile = load_profile()
     _, llm_cfg, tg_cfg, wh_cfg = load_config()
@@ -98,6 +98,8 @@ def _process(jobs: list[dict], min_score: int, notify: bool) -> None:
                 if not ok:
                     console.print(f"[red]{platform} webhook failed — check the URL[/red]")
 
+    if quiet:
+        return
     console.print(table)
     console.print(f"[bold]{new_count} new[/bold] gig(s) processed.")
 

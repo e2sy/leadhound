@@ -3,6 +3,19 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-10-04
+
+The double-click release. The binary is now the app.
+
+### Added
+- **🖱️ Double-click = the dashboard.** Launching the binary with no arguments no longer shows a terminal guide — it runs the whole setup for you: creates `~/.leadhound` if missing, seeds 4 demo gigs on first run so the board is never empty, starts the dashboard (auto-picks a free port from 7800), and opens your browser. Close the console (or Ctrl+C) to stop. The terminal guide remains as a fallback only if the dashboard itself fails to start.
+- **🎲 Demo mode banner.** When every gig in the database is demo data, the dashboard says so and points to `leadhound watch` to go live — no more "is this real?" confusion.
+- **Launch tests.** CI now starts each release binary with no arguments on real Windows / macOS / Linux runners and asserts the dashboard comes up seeded with demo data (`LAUNCH OK`).
+
+### Changed
+- `cli._process` gained a `quiet` flag (used by the first-run seeding).
+- `build_state()` now includes a `demo` boolean.
+
 ## [0.3.1] - 2026-10-04
 
 The "it doesn't vanish anymore" release. Fixes the frozen exe flashing away on double-click.

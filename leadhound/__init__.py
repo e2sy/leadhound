@@ -4,4 +4,4 @@ Watches freelance job boards, scores every gig against your profile,
 drafts the proposal in your voice. You just approve and send.
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

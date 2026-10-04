@@ -33,17 +33,22 @@ def _pause(prompt: str = "\nPress Enter to close...") -> None:
         input(prompt)
 
 
-def _no_args_welcome() -> None:
-    """Double-click launcher: explain how to actually use the CLI."""
+def _no_args_welcome(reason: str | None = None) -> None:
+    """Fallback console guide (shown when the app launch itself fails)."""
     try:
         from rich.console import Console
         from rich.panel import Panel
 
         c = Console()
+        head = (
+            "[bold yellow]The dashboard could not start here,[/bold yellow]"
+            " so here is the manual way:"
+            if reason else
+            "[bold green]leadhound is a command-line tool.[/bold green]"
+            " Open a terminal in this folder and run:"
+        )
         c.print(Panel.fit(
-            "[bold green]leadhound is a command-line tool.[/bold green]\n"
-            "You launched it directly (double-click), so there is nothing to\n"
-            "interact with here. Open a terminal in this folder instead and run:\n\n"
+            f"{head}\n\n"
             "  [bold cyan].\\leadhound-windows-x64.exe init[/bold cyan]        one-time setup\n"
             "  [bold cyan].\\leadhound-windows-x64.exe doctor[/bold cyan]      verify everything works\n"
             "  [bold cyan].\\leadhound-windows-x64.exe demo[/bold cyan]        4 sample gigs, offline\n"
@@ -52,8 +57,10 @@ def _no_args_welcome() -> None:
             "[dim]Tip: rename the file to leadhound.exe and drop the .exe prefix\n"
             "from the commands above. Full guide: github.com/e2sy/leadhound[/dim]",
             title="🐺 leadhound",
-            border_style="green",
+            border_style="green" if not reason else "yellow",
         ))
+        if reason:
+            c.print(f"[dim]({reason})[/dim]")
     except Exception:
         print("leadhound — open a terminal and run: leadhound init | demo | queue | web")
     _pause()
@@ -77,7 +84,19 @@ def _crash_report(exc: BaseException) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) == 1 and _is_frozen():
-        _no_args_welcome()
+        # Double-click path: launch the real app (auto-setup + dashboard).
+        try:
+            from leadhound.launch import launch_app
+
+            launch_app()
+        except SystemExit:
+            raise
+        except KeyboardInterrupt:
+            pass  # serve() already said goodbye
+        except Exception:
+            _crash_report(sys.exc_info()[1])
+            _no_args_welcome(reason=str(sys.exc_info()[1]))
+        sys.exit(0)
     try:
         from leadhound.cli import main
 

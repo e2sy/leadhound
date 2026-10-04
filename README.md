@@ -34,6 +34,17 @@ even at 3am.*
 
 ## ⚡ Quickstart
 
+### 🖱️ Zero-setup (Windows / macOS / Linux binaries)
+
+**Download the binary from [Releases](https://github.com/e2sy/leadhound/releases/latest) and double-click it.** That's the app:
+
+> auto-setup → demo gigs on first run → dashboard opens in your browser.
+> Close the console window (or Ctrl+C) to stop.
+
+Windows shows a SmartScreen note on unsigned binaries — *More info → Run anyway*.
+
+### 🧑‍💻 From source
+
 ```bash
 git clone https://github.com/e2sy/leadhound && cd leadhound
 pip install -e .
@@ -58,7 +69,7 @@ leadhound export --format csv    # your pipeline, out to a spreadsheet
 leadhound mark 42 won            # record outcomes — the scope learns 🐺
 ```
 
-**60-second demo with zero setup:** `leadhound demo && leadhound queue` — works fully offline. Want the visual? `leadhound demo && leadhound web` opens a dark kanban dashboard of your whole pipeline. These are the exact paths the launch video uses.
+**60-second demo with zero setup:** `leadhound demo && leadhound web` — a dark kanban dashboard of your whole pipeline, fully offline. These are the exact paths the launch video uses.
 
 ## 😩 The problem
 

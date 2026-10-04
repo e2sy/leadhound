@@ -121,7 +121,7 @@ const COLS = [
   {key:"sent",     label:"📤 Sent"},
   {key:"rejected", label:"🗑 Rejected"},
 ];
-const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null};
+const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null, demo:false};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -148,7 +148,7 @@ async function load(){
     const r = await fetch("/api/state");
     if(!r.ok) throw new Error("http " + r.status);
     const d = await r.json();
-    S.jobs = d.jobs; S.cal = d.calibration || {};
+    S.jobs = d.jobs; S.cal = d.calibration || {}; S.demo = !!d.demo;
     render();
   }catch(e){
     $("#hintbar").textContent = "⚠ could not reach the leadhound server — is it still running?";
@@ -217,7 +217,10 @@ function chips(){
   ];
   $("#chips").innerHTML = bits.join("");
   const h = S.cal && S.cal.hint;
-  $("#hintbar").innerHTML = h ? `🧠 scope calibration: <b>${esc(h)}</b>` : "🧠 mark outcomes (replied / won / lost) to calibrate the scope";
+  const calText = h ? `🧠 scope calibration: <b>${esc(h)}</b>` : "🧠 mark outcomes (replied / won / lost) to calibrate the scope";
+  $("#hintbar").innerHTML = S.demo
+    ? `<span class="chip amber">🎲 demo mode</span>&nbsp; sample gigs so you can explore — open a terminal and run <b>leadhound watch</b> to load real ones &nbsp;·&nbsp; ${calText}`
+    : calText;
 }
 
 function card(j){

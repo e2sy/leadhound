@@ -1,8 +1,9 @@
 """Embedded single-page app served by leadhound.api.
 
 Vanilla HTML/CSS/JS — no CDN, no build step, works fully offline.
-v2: account gate (login/register), sources drawer (per-connector setup,
-enable, run-now), explicit demo button, honest empty state.
+v3: view switcher (board / accounts), full-page Accounts hub with
+per-source connection state badges, setup wizards (Upwork keys + OAuth,
+Fiverr cookie), save-&-test probing and honest last-run status lines.
 All user-controlled strings are HTML-escaped with esc() before insertion.
 """
 
@@ -123,18 +124,31 @@ PAGE = r"""<!DOCTYPE html>
   #autherr{color:var(--red); font-size:12px; margin-top:10px; min-height:16px}
   .authfine{margin-top:12px; font-size:11px; color:var(--dim); text-align:center}
 
-  /* ---------------- sources drawer ---------------- */
-  #scrim{position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:20; opacity:0;
-         pointer-events:none; transition:opacity .18s}
-  #scrim.open{opacity:1; pointer-events:auto}
-  #drawer{position:fixed; top:0; right:0; bottom:0; width:min(420px, 94vw); z-index:30;
-          background:var(--panel); border-left:1px solid var(--line);
-          transform:translateX(102%); transition:transform .2s ease; display:flex; flex-direction:column}
-  #drawer.open{transform:none}
-  #drawer .dhead{padding:14px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px}
-  #drawer .dhead h2{font-size:15px}
-  #drawer .dsub{padding:10px 16px; font-size:12px; color:var(--dim); border-bottom:1px solid var(--line)}
-  #connlist{flex:1; overflow-y:auto; padding:12px}
+  /* ---------------- view tabs + accounts hub ---------------- */
+  .vtabs{display:flex; gap:4px}
+  .vtabs button{border-radius:8px}
+  .vtabs button.sel{border-color:var(--blue); color:var(--blue)}
+  #accountsView{max-width:1240px; margin:0 auto; padding:14px 18px 30px}
+  .ahead{display:flex; align-items:flex-end; gap:14px; margin:6px 2px 14px}
+  .ahead h2{font-size:17px}
+  .asub{font-size:12px; color:var(--dim); margin-top:3px}
+  .asub b{color:var(--txt)}
+  .agrid{display:grid; grid-template-columns:repeat(auto-fill, minmax(350px, 1fr));
+         gap:12px}
+  .conn .badge{margin-left:auto; font-size:10.5px; padding:2px 8px; border-radius:999px;
+               border:1px solid var(--line); white-space:nowrap}
+  .badge.ok{color:var(--green); border-color:rgba(63,185,80,.45); background:rgba(63,185,80,.08)}
+  .badge.err{color:var(--red); border-color:rgba(248,81,73,.45); background:rgba(248,81,73,.08)}
+  .badge.warn{color:var(--amber); border-color:rgba(227,179,65,.45); background:rgba(227,179,65,.07)}
+  .badge.off{color:var(--dim)}
+  .wiz{margin-top:9px; font-size:12px; border:1px dashed var(--line); border-radius:9px;
+       padding:7px 10px}
+  .wiz summary{cursor:pointer; color:var(--blue); font-size:11.5px}
+  .wiz ol{margin:8px 0 4px 18px; display:flex; flex-direction:column; gap:5px}
+  .wiz code{background:var(--bg); border:1px solid var(--line); border-radius:6px;
+            padding:1px 6px; font-size:11px; word-break:break-all}
+  .wiz .warn{margin-top:7px; color:var(--amber); font-size:11px}
+  .afoot{margin-top:16px; font-size:11px; color:var(--dim); text-align:center}
   .conn{background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px}
   .conn.on{border-color:rgba(63,185,80,.4)}
   .connhead{display:flex; align-items:center; gap:8px}
@@ -153,7 +167,6 @@ PAGE = r"""<!DOCTYPE html>
   .connacts{display:flex; gap:6px; margin-top:9px; flex-wrap:wrap; align-items:center}
   .cstat{margin-top:8px; font-size:11.5px; color:var(--dim)}
   .cstat.err{color:var(--red)}
-  #drawer .dfoot{padding:10px 16px; border-top:1px solid var(--line); font-size:11px; color:var(--dim)}
 
   #toasts{position:fixed; right:14px; bottom:14px; display:flex; flex-direction:column; gap:8px; z-index:50}
   .toast{background:var(--panel); border:1px solid var(--green); color:var(--txt);
@@ -195,7 +208,10 @@ PAGE = r"""<!DOCTYPE html>
     <div class="chips" id="chips"></div>
     <div class="spacer"></div>
     <input id="q" placeholder="search gigs…" oninput="S.q=this.value; render()">
-    <button onclick="openDrawer()" title="connect job sites">⚙ sources <span id="connN" class="chip blue">0</span></button>
+    <nav class="vtabs">
+      <button id="tabBoard" class="sel" onclick="showView('board')">▦ board</button>
+      <button id="tabAccts" onclick="showView('accounts')">🔗 accounts <span id="connN" class="chip blue">0</span></button>
+    </nav>
     <button id="autoBtn" class="on" onclick="toggleAuto()" title="auto-refresh every 8s">⟳ auto</button>
     <button class="primary" onclick="fetchNow()" title="fetch every enabled source now">⚡ fetch gigs</button>
     <div id="userbox">
@@ -212,7 +228,7 @@ PAGE = r"""<!DOCTYPE html>
        or point the RSS connector at any job feed.</p>
     <div class="hbtns">
       <button class="primary" onclick="fetchNow()">⚡ fetch gigs now</button>
-      <button onclick="openDrawer()">⚙ connect sources</button>
+      <button onclick="showView('accounts')">⚙ connect accounts</button>
       <button onclick="loadDemo()">🎲 load sample gigs</button>
     </div>
     <div class="fine">fetching pulls from the live job boards — the radar re-polls every few minutes while this tab's server runs.</div>
@@ -220,17 +236,19 @@ PAGE = r"""<!DOCTYPE html>
   <div id="board"></div>
 </div>
 
-<div id="scrim" onclick="closeDrawer()"></div>
-<aside id="drawer">
-  <div class="dhead">
-    <h2>⚙ job sources</h2>
+<div id="accountsView" hidden>
+  <div class="ahead">
+    <div>
+      <h2>🔗 connected accounts</h2>
+      <div class="asub" id="acctSummary">loading…</div>
+    </div>
     <div class="spacer"></div>
-    <button onclick="closeDrawer()">✕</button>
+    <button class="primary" onclick="fetchNow()">⚡ fetch all sources</button>
   </div>
-  <div class="dsub">switch a source on → fill its settings → ⚡ run. enabled sources re-poll automatically every few minutes.</div>
-  <div id="connlist">loading…</div>
-  <div class="dfoot">credentials are stored in your local SQLite (secrets masked in the UI) — nothing is sent anywhere except the sites you enable.</div>
-</aside>
+  <div id="acctGrid" class="agrid">loading…</div>
+  <div class="afoot">credentials live in your local SQLite (secrets masked in the UI) — nothing is sent
+    anywhere except the sites you enable. the radar re-polls enabled sources every few minutes while the server runs.</div>
+</div>
 
 <div id="toasts"></div>
 
@@ -243,7 +261,7 @@ const COLS = [
   {key:"rejected", label:"🗑 Rejected"},
 ];
 const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
-           demo:false, user:null, connectors:[], authMode:"login"};
+           demo:false, user:null, connectors:[], authMode:"login", view:"board"};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -374,18 +392,37 @@ window.fetchNow = async () => {
   const d = await post("/api/fetch", {}, null);
   if(!d) return;
   if(d.hint){ toast(d.hint, true); return; }
+  const label = id => (S.connectors.find(c => c.id === id) || {}).label || id;
+  const parts = (d.results || []).map(r =>
+    r.error ? `${label(r.connector)}: ✗` : `${label(r.connector)} +${r.new || 0}`);
   const total = (d.results || []).reduce((a, r) => a + (r.new || 0), 0);
-  const errs = (d.results || []).filter(r => r.error);
-  toast(total + " new gig(s) across " + (d.results || []).length + " source(s) ✓");
-  errs.forEach(r => toast(r.connector + ": " + r.error, true));
+  toast(`⚡ ${total} new gig(s) — ${parts.join(" · ")}`);
+  (d.results || []).filter(r => r.error).forEach(r => toast(label(r.connector) + ": " + r.error, true));
   await load(); loadConnectors();
 };
 window.loadDemo = () => post("/api/demo", {}, "sample gigs loaded ✓").then(load);
 
 /* ------------------------------------------------- connectors */
 const KINDLABEL = {public:"no setup", keys:"API keys", cookie:"cookie", feed:"feed URL"};
-window.openDrawer = () => { $("#drawer").classList.add("open"); $("#scrim").classList.add("open"); loadConnectors(); };
-window.closeDrawer = () => { $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); };
+window.showView = v => {
+  S.view = v;
+  $("#tabBoard").classList.toggle("sel", v === "board");
+  $("#tabAccts").classList.toggle("sel", v === "accounts");
+  $("#accountsView").hidden = v !== "accounts";
+  ["#hero", "#board", "#hintbar"].forEach(sel => {
+    const el = $(sel);
+    if(el) el.style.display = v === "board" ? "" : "none";
+  });
+  if(v === "accounts") loadConnectors();
+};
+
+async function loadRadar(){
+  try{
+    const r = await fetch("/api/radar");
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ return null; }
+}
 
 async function loadConnectors(){
   try{
@@ -393,19 +430,68 @@ async function loadConnectors(){
     if(r.status === 401) return;
     const d = await r.json();
     S.connectors = d.connectors || [];
-    renderConnectors();
+    renderAccounts();
   }catch(e){}
 }
 
-function renderConnectors(){
+function connState(c){
+  const st = c.status || {};
+  if(c.enabled && st.last_error) return {cls:"err", txt:"❌ error"};
+  if(c.enabled && st.last_status === "ok") return {cls:"ok", txt:"✅ connected"};
+  if(c.enabled) return {cls:"warn", txt:"🟡 on — not tested yet"};
+  const needs = ["keys","cookie","feed"].includes(c.kind) &&
+                (c.fields || []).some(f => !(c.settings || {})[f.name]);
+  return needs ? {cls:"warn", txt:"⚠ setup needed"} : {cls:"off", txt:"⚫ off"};
+}
+
+const WIZARDS = {
+  upwork: () => `
+    <details class="wiz"><summary>how to connect Upwork (2 min, official API)</summary>
+      <ol>
+        <li>create a free app at <a href="https://www.upwork.com/developer/applications" target="_blank" rel="noopener noreferrer">upwork.com/developer/applications</a> — any name, "desktop app" type is fine</li>
+        <li>add this <b>redirect URI</b> to your app: <code>${esc(location.origin)}/api/connectors/upwork/callback</code>
+            <button onclick="copyRuri()">⧉ copy</button></li>
+        <li>paste the <b>client id</b> + <b>secret</b> above → 💾 save</li>
+        <li>hit 🔗 connect → approve in the Upwork tab that opens</li>
+        <li>⚡ run now — real jobs land on your board, token auto-refreshes forever</li>
+      </ol>
+    </details>`,
+  fiverr: () => `
+    <details class="wiz"><summary>how to get your Fiverr cookie (1 min)</summary>
+      <ol>
+        <li>log into fiverr.com in this browser</li>
+        <li>press F12 → <b>Network</b> tab → click any request to fiverr.com</li>
+        <li>Request Headers → copy the whole <b>cookie:</b> value</li>
+        <li>paste it above → 💾 save → ⚡ run now</li>
+      </ol>
+      <div class="warn">⚠ beta, honestly labeled: Fiverr has no public API. if it logs you out or their page changes, paste a fresh cookie. skip this connector if that's too spicy.</div>
+    </details>`,
+};
+
+function renderAccounts(){
   const n = S.connectors.filter(c => c.enabled).length;
   $("#connN").textContent = n;
-  $("#connlist").innerHTML = S.connectors.map(c => {
+  const connected = S.connectors.filter(c => connState(c).cls === "ok").length;
+  const errors = S.connectors.filter(c => connState(c).cls === "err").length;
+  $("#acctSummary").innerHTML =
+    `<b>${connected}</b> of ${S.connectors.length} sources connected` +
+    (errors ? ` · <span style="color:var(--red)">${errors} with errors</span>` : "") +
+    ` · <span id="radarLine">checking radar…</span>`;
+  loadRadar().then(rd => {
+    const el = $("#radarLine");
+    if(!el) return;
+    el.innerHTML = !rd || !rd.running
+      ? `radar: <span style="color:var(--amber)">idle (radar runs with <code>leadhound web</code>)</span>`
+      : `📡 radar <b>live</b> · sweeps every ${rd.interval_minutes} min` +
+        (rd.enabled_sources ? ` · ${rd.enabled_sources} source(s) armed` : "");
+  });
+  $("#acctGrid").innerHTML = S.connectors.map(c => {
     const st = c.status || {};
+    const badge = connState(c);
     const statLine = st.last_error
       ? `⚠ ${esc(st.last_error)}`
       : st.last_run
-        ? `⏱ last run ${esc(String(st.last_run).slice(0,16))} · +${st.last_count || 0} new`
+        ? `⏱ last sweep ${esc(String(st.last_run).slice(0,16))} · +${st.last_count || 0} new gig(s)`
         : "never run yet";
     const fields = (c.fields || []).map(f => `
       <div>
@@ -415,24 +501,24 @@ function renderConnectors(){
                placeholder="${esc(f.placeholder || "")}" autocomplete="off">
         ${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ""}
       </div>`).join("");
-    const extra = c.id === "upwork" && c.enabled
-      ? `<button onclick="upworkConnect()">🔗 connect upwork</button>` : "";
+    const needsSave = (c.fields || []).length > 0;
+    const wiz = WIZARDS[c.id] ? WIZARDS[c.id]() : "";
     return `<div class="conn ${c.enabled ? "on" : ""}">
       <div class="connhead">
         <b>${esc(c.label)}</b>
         <span class="kchip ${esc(c.kind)}">${esc(KINDLABEL[c.kind] || c.kind)}</span>
-        <span class="switch">${c.enabled ? "on" : "off"}
-          <input type="checkbox" ${c.enabled ? "checked" : ""} onchange="toggleConn('${esc(c.id)}', this.checked)">
-        </span>
+        <span class="badge ${badge.cls}">${badge.txt}</span>
       </div>
       <div class="blurb">${esc(c.blurb)}</div>
       ${fields ? `<div class="fields">${fields}</div>` : ""}
       <div class="connacts">
-        ${fields ? `<button onclick="saveConn('${esc(c.id)}')">💾 save</button>` : ""}
-        <button onclick="runConn('${esc(c.id)}')">⚡ run now</button>
-        ${extra}
+        ${needsSave ? `<button onclick="saveConn('${esc(c.id)}')">💾 save</button>` : ""}
+        <button onclick="toggleConn('${esc(c.id)}', ${!c.enabled})">${c.enabled ? "switch off" : "switch on"}</button>
+        <button onclick="runConn('${esc(c.id)}')">⚡ ${needsSave ? "save & test" : "run now"}</button>
+        ${c.id === "upwork" ? `<button onclick="upworkConnect()">🔗 connect</button>` : ""}
         ${c.setup_url ? `<a href="${esc(c.setup_url)}" target="_blank" rel="noopener noreferrer">get keys ↗</a>` : ""}
       </div>
+      ${wiz}
       <div class="cstat ${st.last_error ? "err" : ""}">${statLine}</div>
     </div>`;
   }).join("");
@@ -460,12 +546,16 @@ window.runConn = async cid => {
   else toast(cid + ": " + (d.new || 0) + " new gig(s) ✓");
   await load(); loadConnectors();
 };
+window.copyRuri = async () => {
+  const uri = location.origin + "/api/connectors/upwork/callback";
+  try{ await navigator.clipboard.writeText(uri); toast("redirect URI copied ✓"); }
+  catch(e){ toast(uri); }
+};
 window.upworkConnect = async () => {
   const d = await post("/api/connectors/upwork/auth/start", {}, null);
   if(!d) return;
-  toast("authorize in the Upwork tab, then come back and ⚡ run");
+  toast("authorize in the Upwork tab, then ⚡ save & test");
   window.open(d.authorize_url, "_blank", "noopener");
-  if(d.redirect_uri) toast("use this redirect URI in your Upwork app: " + d.redirect_uri);
 };
 
 /* ------------------------------------------------- board */

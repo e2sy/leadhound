@@ -23,10 +23,9 @@ from .demo import DEMO_JOBS
 from .digest import cmd_digest
 from .doctor import cmd_doctor
 from .engine import intel
-from .engine.scorer import score_job
-from .engine.voice import draft_proposal
 from .notify import telegram as tg
 from .notify import webhooks as wh
+from .pipeline import ingest_jobs
 from .watchers.rss import poll
 
 console = Console()
@@ -53,53 +52,37 @@ def cmd_init(args) -> None:
 
 
 def _process(jobs: list[dict], min_score: int, notify: bool, quiet: bool = False) -> None:
-    """Score → draft → store → optionally push to Telegram."""
+    """Score → draft → store → optionally push to Telegram (via the shared pipeline)."""
     profile = load_profile()
     _, llm_cfg, tg_cfg, wh_cfg = load_config()
-    new_count = 0
+    results = ingest_jobs(
+        jobs,
+        profile=profile,
+        llm_cfg=llm_cfg,
+        min_score=min_score,
+        tg_cfg=tg_cfg if notify else None,
+        wh_cfg=wh_cfg if notify else None,
+    )
+    new_count = sum(1 for r in results if r.is_new)
+    if quiet:
+        return
 
     table = Table(title="Poll results", show_lines=False)
     for col in ("score", "source", "title", "money", "status"):
         table.add_column(col)
-
-    for job in jobs:
-        score, breakdown = score_job(job, profile)
-        draft, mode = "", ""
-        if score >= min_score:
-            draft, mode = draft_proposal(job, profile, llm_cfg, breakdown["skills"]["matched"])
-        rid, is_new = db.upsert_job(job, score, breakdown, draft)
-        if not is_new:
+    for r in results:
+        if not r.is_new:
             continue
-        new_count += 1
-        b = breakdown
+        b = r.breakdown
         money = (b["budget"]["hourly"] and f"${b['budget']['hourly']:g}/hr") or (
             (b["budget"]["fixed_min"] and f"${b['budget']['fixed_min']:,.0f}") or "—"
         )
-        color = "green" if score >= 80 else "yellow" if score >= min_score else "dim"
+        color = "green" if r.score >= 80 else "yellow" if r.score >= min_score else "dim"
         table.add_row(
-            f"[{color}]{score}[/{color}]", job["source"],
-            job["title"][:48], str(money),
-            ("drafted (" + mode + ")") if draft else "below threshold",
+            f"[{color}]{r.score}[/{color}]", r.job["source"],
+            r.job["title"][:48], str(money),
+            ("drafted (" + r.mode + ")") if r.draft else "below threshold",
         )
-
-        if draft and notify and tg_cfg.enabled:
-            j = db.get_job(rid)
-            ok = tg.send_job_card(tg_cfg.bot_token, tg_cfg.chat_id, j, breakdown)
-            tg.send_draft(tg_cfg.bot_token, tg_cfg.chat_id, j)
-            db.mark_notified(rid)
-            if not ok:
-                console.print("[red]Telegram push failed — check config.toml[/red]")
-
-        if draft and notify and (wh_cfg.discord_webhook_url or wh_cfg.slack_webhook_url):
-            j = db.get_job(rid)
-            results = wh.send_webhooks(j, breakdown, wh_cfg)
-            db.mark_notified(rid)
-            for platform, ok in results:
-                if not ok:
-                    console.print(f"[red]{platform} webhook failed — check the URL[/red]")
-
-    if quiet:
-        return
     console.print(table)
     console.print(f"[bold]{new_count} new[/bold] gig(s) processed.")
 

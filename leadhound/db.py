@@ -31,6 +31,7 @@ class Job:
     draft: str = ""
     outcome: str | None = None
     outcome_at: str | None = None
+    user_id: int | None = None
 
     @property
     def breakdown(self) -> dict:
@@ -79,6 +80,7 @@ def ensure_db() -> None:
         """
     )
     _migrate(c)
+    _ensure_accounts(c)
     c.commit()
     c.close()
 
@@ -90,9 +92,242 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN outcome TEXT")
     if "outcome_at" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN outcome_at TEXT")
+    if "user_id" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN user_id INTEGER")
 
 
-def upsert_job(job: dict, score: int, score_json: dict, draft: str) -> tuple[int, bool]:
+def _ensure_accounts(c: sqlite3.Connection) -> None:
+    """Accounts, sessions and per-user connector configs (the SaaS-shaped tables)."""
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created TEXT DEFAULT (datetime('now')),
+            expires TEXT NOT NULL
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS connector_config (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            connector_id TEXT NOT NULL,
+            enabled INTEGER DEFAULT 0,
+            settings TEXT DEFAULT '{}',
+            last_run TEXT,
+            last_status TEXT,
+            last_error TEXT,
+            last_count INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, connector_id)
+        )
+        """
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id)"
+    )
+    c.execute(
+        "DELETE FROM sessions WHERE expires < datetime('now')"
+    )
+
+
+# ------------------------------------------------------------------- accounts
+def users_count() -> int:
+    c = _conn()
+    n = c.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    c.close()
+    return n
+
+
+def create_user(email: str, password_hash: str) -> dict:
+    try:
+        c = _conn()
+        cur = c.execute(
+            "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+            (email.strip().lower(), password_hash),
+        )
+        uid = cur.lastrowid
+        c.commit()
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("that email already has an account") from exc
+    finally:
+        c.close()
+    return {"id": uid, "email": email.strip().lower()}
+
+
+def user_by_email(email: str) -> dict | None:
+    c = _conn()
+    row = c.execute(
+        "SELECT id, email, password_hash, created FROM users WHERE email = ?",
+        (email.strip().lower(),),
+    ).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def user_by_id(uid: int) -> dict | None:
+    c = _conn()
+    row = c.execute(
+        "SELECT id, email, created FROM users WHERE id = ?", (uid,)
+    ).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def create_session(user_id: int, token_hash: str, expires: str) -> None:
+    c = _conn()
+    c.execute(
+        "INSERT INTO sessions (token_hash, user_id, expires) VALUES (?, ?, ?)",
+        (token_hash, user_id, expires),
+    )
+    c.commit()
+    c.close()
+
+
+def session_user(token_hash: str) -> dict | None:
+    c = _conn()
+    row = c.execute(
+        """
+        SELECT u.id, u.email, u.created FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = ? AND s.expires >= datetime('now')
+        """,
+        (token_hash,),
+    ).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def delete_session(token_hash: str) -> None:
+    c = _conn()
+    c.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+    c.commit()
+    c.close()
+
+
+# ---------------------------------------------------------- connector configs
+def connector_cfg(user_id: int, connector_id: str) -> dict:
+    c = _conn()
+    row = c.execute(
+        "SELECT * FROM connector_config WHERE user_id = ? AND connector_id = ?",
+        (user_id, connector_id),
+    ).fetchone()
+    c.close()
+    if not row:
+        return {
+            "connector_id": connector_id,
+            "enabled": False,
+            "settings": {},
+            "last_run": None,
+            "last_status": None,
+            "last_error": None,
+            "last_count": 0,
+        }
+    d = dict(row)
+    try:
+        d["settings"] = json.loads(d.get("settings") or "{}")
+    except json.JSONDecodeError:
+        d["settings"] = {}
+    return d
+
+
+def connector_cfgs(user_id: int) -> dict[str, dict]:
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM connector_config WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    c.close()
+    out: dict[str, dict] = {}
+    for row in rows:
+        d = dict(row)
+        try:
+            d["settings"] = json.loads(d.get("settings") or "{}")
+        except json.JSONDecodeError:
+            d["settings"] = {}
+        out[d["connector_id"]] = d
+    return out
+
+
+def save_connector_cfg(
+    user_id: int,
+    connector_id: str,
+    *,
+    enabled: bool | None = None,
+    settings: dict | None = None,
+) -> None:
+    c = _conn()
+    cur = c.execute(
+        "SELECT enabled, settings FROM connector_config "
+        "WHERE user_id = ? AND connector_id = ?",
+        (user_id, connector_id),
+    ).fetchone()
+    if cur is None:
+        c.execute(
+            "INSERT INTO connector_config (user_id, connector_id, enabled, settings) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                user_id,
+                connector_id,
+                int(bool(enabled)),
+                json.dumps(settings or {}),
+            ),
+        )
+    else:
+        new_enabled = int(bool(enabled)) if enabled is not None else cur["enabled"]
+        new_settings = json.dumps(settings) if settings is not None else cur["settings"]
+        c.execute(
+            "UPDATE connector_config SET enabled = ?, settings = ? "
+            "WHERE user_id = ? AND connector_id = ?",
+            (new_enabled, new_settings, user_id, connector_id),
+        )
+    c.commit()
+    c.close()
+
+
+def record_connector_run(
+    user_id: int, connector_id: str, status: str, error: str | None, count: int
+) -> None:
+    c = _conn()
+    c.execute(
+        """
+        INSERT INTO connector_config (user_id, connector_id, last_run, last_status,
+                                      last_error, last_count)
+        VALUES (?, ?, datetime('now'), ?, ?, ?)
+        ON CONFLICT(user_id, connector_id) DO UPDATE SET
+            last_run = excluded.last_run,
+            last_status = excluded.last_status,
+            last_error = excluded.last_error,
+            last_count = excluded.last_count
+        """,
+        (user_id, connector_id, status, error, count),
+    )
+    c.commit()
+    c.close()
+
+
+def enabled_connector_rows() -> list[tuple[int, str]]:
+    """Every (user_id, connector_id) pair currently switched on — the poller feed."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT user_id, connector_id FROM connector_config WHERE enabled = 1"
+    ).fetchall()
+    c.close()
+    return [(r["user_id"], r["connector_id"]) for r in rows]
+
+
+def upsert_job(
+    job: dict, score: int, score_json: dict, draft: str, user_id: int | None = None
+) -> tuple[int, bool]:
     """Insert a job if the guid is new. Returns (row_id, is_new)."""
     c = _conn()
     cur = c.execute("SELECT id, status FROM jobs WHERE guid = ?", (job["guid"],))
@@ -103,14 +338,14 @@ def upsert_job(job: dict, score: int, score_json: dict, draft: str) -> tuple[int
     cur = c.execute(
         """
         INSERT INTO jobs (guid, source, title, url, body, budget_min, budget_max,
-                          hourly, tags, posted_at, score, score_json, draft)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          hourly, tags, posted_at, score, score_json, draft, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job["guid"], job["source"], job["title"], job["url"], job.get("body", ""),
             job.get("budget_min"), job.get("budget_max"), job.get("hourly"),
             ",".join(job.get("tags", [])), job.get("posted_at"),
-            score, json.dumps(score_json), draft,
+            score, json.dumps(score_json), draft, user_id,
         ),
     )
     c.commit()
@@ -119,14 +354,24 @@ def upsert_job(job: dict, score: int, score_json: dict, draft: str) -> tuple[int
     return rid, True
 
 
-def jobs_by_status(status: str, min_score: int = 0, limit: int = 50) -> list[Job]:
+def _scope_params(user_id: int | None) -> tuple[int, int]:
+    """Static-SQL scope args: (has_scope, uid). NULL user_id rows are the
+    local/CLI pool, shared by every account."""
+    return (1, user_id) if user_id else (0, 0)
+
+
+def jobs_by_status(
+    status: str, min_score: int = 0, limit: int = 50, user_id: int | None = None
+) -> list[Job]:
     c = _conn()
+    flag, uid = _scope_params(user_id)
     rows = c.execute(
         """
         SELECT * FROM jobs WHERE status = ? AND score >= ?
+          AND (? = 0 OR user_id IS NULL OR user_id = ?)
         ORDER BY score DESC, id DESC LIMIT ?
         """,
-        (status, min_score, limit),
+        (status, min_score, flag, uid, limit),
     ).fetchall()
     c.close()
     return [Job(**dict(r)) for r in rows]
@@ -146,25 +391,33 @@ def set_status(job_id: int, status: str) -> None:
     c.close()
 
 
-def pending_unnotified(min_score: int = 0, limit: int = 20) -> list[Job]:
+def pending_unnotified(
+    min_score: int = 0, limit: int = 20, user_id: int | None = None
+) -> list[Job]:
     c = _conn()
+    flag, uid = _scope_params(user_id)
     rows = c.execute(
         """
         SELECT * FROM jobs WHERE status = 'pending' AND notified = 0 AND score >= ?
+          AND (? = 0 OR user_id IS NULL OR user_id = ?)
         ORDER BY score DESC, id DESC LIMIT ?
         """,
-        (min_score, limit),
+        (min_score, flag, uid, limit),
     ).fetchall()
     c.close()
     return [Job(**dict(r)) for r in rows]
 
 
-def all_jobs(limit: int = 300) -> list[Job]:
-    """Every tracked gig, best first — the dashboard feed."""
+def all_jobs(limit: int = 300, user_id: int | None = None) -> list[Job]:
+    """Every tracked gig visible to this account, best first — the dashboard feed."""
     c = _conn()
+    flag, uid = _scope_params(user_id)
     rows = c.execute(
-        "SELECT * FROM jobs ORDER BY score DESC, id DESC LIMIT ?",
-        (limit,),
+        """
+        SELECT * FROM jobs WHERE (? = 0 OR user_id IS NULL OR user_id = ?)
+        ORDER BY score DESC, id DESC LIMIT ?
+        """,
+        (flag, uid, limit),
     ).fetchall()
     c.close()
     return [Job(**dict(r)) for r in rows]
@@ -186,16 +439,20 @@ def clear_outcome(job_id: int) -> None:
     c.close()
 
 
-def recent_jobs(hours: int = 24, min_score: int = 0, limit: int = 5) -> list[Job]:
+def recent_jobs(
+    hours: int = 24, min_score: int = 0, limit: int = 5, user_id: int | None = None
+) -> list[Job]:
     """Best gigs fetched within the last N hours — the digest feed."""
     c = _conn()
+    flag, uid = _scope_params(user_id)
     rows = c.execute(
         """
         SELECT * FROM jobs
         WHERE fetched_at >= datetime('now', ?) AND score >= ?
+          AND (? = 0 OR user_id IS NULL OR user_id = ?)
         ORDER BY score DESC, id DESC LIMIT ?
         """,
-        (f"-{int(hours)} hours", min_score, limit),
+        (f"-{int(hours)} hours", min_score, flag, uid, limit),
     ).fetchall()
     c.close()
     return [Job(**dict(r)) for r in rows]

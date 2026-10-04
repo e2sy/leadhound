@@ -3,6 +3,30 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.5.0] - 2026-10-04
+
+The real-backend release. No more demo-by-default: log in, connect the job sites you actually want, and fetch live gigs.
+
+### Added
+- **Login system.** Register/log in from the dashboard. scrypt-hashed passwords, 256-bit session tokens (only token hashes are stored), HttpOnly SameSite=Lax cookies. Accounts live in your local SQLite — no cloud, no telemetry.
+- **FastAPI backend.** The dashboard is now served by a real REST API (`/api/auth/*`, `/api/state`, `/api/connectors/*`, `/api/fetch`, `/api/health`) with an interactive OpenAPI schema at `/docs`. The stdlib HTTP server is retired.
+- **Source connectors (8).** New `leadhound/connectors/` registry:
+  - **Freelancer.com** — live search over their public API with real budgets, zero setup.
+  - **Upwork** — official OAuth2 (authorization-code + auto refresh): paste your dev-app keys, hit 🔗 connect, leadhound stores the refresh token locally and rotates access tokens on every poll.
+  - **Fiverr (beta)** — buyer requests via your own session cookie; honest failure modes when Fiverr changes their layout instead of fake data.
+  - **Custom RSS/Atom** — point it at any job feed (niche boards, Upwork/Fiverr mirrors).
+  - RemoteOK, Remotive, WeWorkRemotely, Hacker News — the original public sources, now behind the same interface.
+- **Background radar.** While the app runs, enabled connectors re-poll every `interval_minutes` (politeness floor: 5 min), ingest, score, draft and notify — per account.
+- **Sources drawer UI.** The ⚙ panel lists every connector with kind chips (no setup / API keys / cookie / feed), per-source settings (secrets masked `•••`), last-run status, "⚡ run now" buttons and the Upwork connect flow.
+- **Account-scoped data.** Jobs, connector configs and settings are per-account; CLI-fetched gigs stay in a shared local pool. The schema (users, sessions, connector_config) is shaped for the later hosted-SaaS mode.
+- **Dashboard onboarding.** An empty board now offers "⚡ fetch gigs now", "⚙ connect sources" and an explicit "🎲 load sample gigs" — demo data is a choice, never a surprise.
+
+### Changed
+- **First run is honest.** The double-click launch no longer seeds demo gigs automatically; the board starts empty and onboards you into real fetching.
+- `leadhound web` runs on uvicorn; the PyInstaller builds ship the extra uvicorn hidden imports and the CI launch test now exercises register → demo → authed state on all three OSes.
+- CLI, dashboard "fetch" and the background radar share one ingest pipeline (`leadhound/pipeline.py`) — score → draft → store → notify behaves identically everywhere.
+- Tests: 176 (from 125) — auth, connectors, API round-trips, pipeline, launcher; ruff clean.
+
 ## [0.4.0] - 2026-10-04
 
 The double-click release. The binary is now the app.

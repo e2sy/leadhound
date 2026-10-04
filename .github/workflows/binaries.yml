@@ -31,7 +31,23 @@ jobs:
           pip install -e . pyinstaller
 
       - name: Build one-file binary
-        run: pyinstaller --onefile --clean --name leadhound-${{ matrix.name }} entry.py
+        run: >-
+          pyinstaller --onefile --clean --name leadhound-${{ matrix.name }} entry.py
+          --hidden-import uvicorn
+          --hidden-import uvicorn.logging
+          --hidden-import uvicorn.loops
+          --hidden-import uvicorn.loops.auto
+          --hidden-import uvicorn.loops.asyncio
+          --hidden-import uvicorn.protocols
+          --hidden-import uvicorn.protocols.http
+          --hidden-import uvicorn.protocols.http.auto
+          --hidden-import uvicorn.protocols.http.h11_impl
+          --hidden-import uvicorn.protocols.websockets
+          --hidden-import uvicorn.protocols.websockets.auto
+          --hidden-import uvicorn.lifespan
+          --hidden-import uvicorn.lifespan.on
+          --hidden-import uvicorn.middleware.proxy_headers
+          --hidden-import anyio._backends._asyncio
 
       - name: Smoke test the binary (linux + macos)
         if: matrix.name != 'windows-x64'
@@ -88,16 +104,25 @@ jobs:
           "$BIN" >/tmp/lh-launch.log 2>&1 &
           PID=$!
           UP=0
-          STATE=""
-          for i in $(seq 1 25); do
-            if curl -sf http://127.0.0.1:7800/api/state >/dev/null 2>&1; then UP=1; break; fi
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:7800/api/health >/dev/null 2>&1; then UP=1; break; fi
             sleep 1
           done
-          if [ "$UP" = "1" ]; then STATE=$(curl -sf http://127.0.0.1:7800/api/state || true); fi
+          if [ "$UP" != "1" ]; then
+            echo "server never came up"; tail -30 /tmp/lh-launch.log
+            kill $PID 2>/dev/null || true; exit 1
+          fi
+          # real backend flow: register -> demo seed -> authed state
+          curl -sf -c /tmp/lh-cookies -X POST -H 'Content-Type: application/json' \
+            -d '{"email":"smoke@test.dev","password":"hunter2boogaloo"}' \
+            http://127.0.0.1:7800/api/auth/register >/dev/null
+          curl -sf -b /tmp/lh-cookies -X POST -H 'Content-Type: application/json' \
+            -d '{}' http://127.0.0.1:7800/api/demo >/dev/null
+          STATE=$(curl -sf -b /tmp/lh-cookies http://127.0.0.1:7800/api/state)
+          echo "$STATE" | grep -q '"email":"smoke@test.dev"'
+          echo "$STATE" | grep -q '"demo":true'
           kill $PID 2>/dev/null || true
-          if [ "$UP" != "1" ]; then echo "dashboard never came up"; tail -20 /tmp/lh-launch.log; exit 1; fi
-          echo "$STATE" | grep -q '"demo": true'
-          echo "LAUNCH OK (auto-init + demo seed + dashboard)"
+          echo "LAUNCH OK (register -> demo -> authed state)"
 
       - name: Launch test — no args = app (windows)
         if: matrix.name == 'windows-x64'
@@ -111,21 +136,30 @@ jobs:
           $BIN = "./dist/leadhound-windows-x64.exe"
           $p = Start-Process -FilePath $BIN -PassThru -RedirectStandardOutput "lh-launch.log"
           $up = $false
-          foreach ($i in 1..25) {
+          foreach ($i in 1..40) {
             try {
-              $r = Invoke-WebRequest -Uri "http://127.0.0.1:7800/api/state" -UseBasicParsing -TimeoutSec 2
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:7800/api/health" -UseBasicParsing -TimeoutSec 2
               if ($r.StatusCode -eq 200) { $up = $true; break }
             } catch { Start-Sleep -Seconds 1 }
           }
-          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
           if (-not $up) {
-            Write-Host "dashboard never came up"
-            if (Test-Path "lh-launch.log") { Get-Content "lh-launch.log" -Tail 20 }
+            Write-Host "server never came up"
+            if (Test-Path "lh-launch.log") { Get-Content "lh-launch.log" -Tail 30 }
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
             exit 1
           }
-          $state = (Invoke-WebRequest -Uri "http://127.0.0.1:7800/api/state" -UseBasicParsing).Content
+          $reg = Invoke-WebRequest -Uri "http://127.0.0.1:7800/api/auth/register" `
+            -Method POST -ContentType "application/json" `
+            -Body '{"email":"smoke@test.dev","password":"hunter2boogaloo"}' `
+            -SessionVariable sess -UseBasicParsing
+          Invoke-WebRequest -Uri "http://127.0.0.1:7800/api/demo" -Method POST `
+            -ContentType "application/json" -Body '{}' -WebSession $sess -UseBasicParsing | Out-Null
+          $state = (Invoke-WebRequest -Uri "http://127.0.0.1:7800/api/state" `
+            -WebSession $sess -UseBasicParsing).Content
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          if ($state -notmatch '"email":\s*"smoke@test.dev"') { exit 1 }
           if ($state -notmatch '"demo":\s*true') { exit 1 }
-          Write-Host "LAUNCH OK (auto-init + demo seed + dashboard)"
+          Write-Host "LAUNCH OK (register -> demo -> authed state)"
 
       - name: Upload workflow artifact (always, for debugging)
         uses: actions/upload-artifact@v4

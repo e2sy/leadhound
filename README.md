@@ -15,21 +15,21 @@ even at 3am.*
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-`pip install -e .` · Local-first · SQLite · No accounts · No telemetry · Native binaries for Win/Mac/Linux
+`pip install -e .` · Local-first · Login system · 8 job-site connectors · REST API (FastAPI) · Native binaries for Win/Mac/Linux
 
-**[Quickstart](#-quickstart) · [How it works](#-how-it-works) · [Telegram in 2 minutes](#-telegram-in-2-minutes) · [FAQ](#-faq) · [Roadmap](#-roadmap)**
+**[Quickstart](#-quickstart) · [Sources](#-sources---connect-the-job-sites) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Roadmap](#-roadmap)**
 
 </div>
 
 ---
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="leadhound dashboard — kanban pipeline with score rings" width="100%">
+  <img src="docs/screenshot.png" alt="leadhound dashboard — kanban pipeline with score rings, live gig feed, sources drawer" width="100%">
 </p>
 
 <p align="center">
-  <em>Approve → send → mark outcomes. The board is your entire pipeline, one command away: <code>leadhound web</code></em><br>
-  <img src="docs/demo.gif" alt="leadhound dashboard demo — approve a gig, filter by keyword" width="720">
+  <em>Create an account → connect sources → hit <b>⚡ fetch gigs</b>. Real boards, real budgets, real speed.</em><br>
+  <img src="docs/screenshot-sources.png" alt="the sources drawer — 8 connectors with per-source setup" width="720">
 </p>
 
 ## ⚡ Quickstart
@@ -38,8 +38,9 @@ even at 3am.*
 
 **Download the binary from [Releases](https://github.com/e2sy/leadhound/releases/latest) and double-click it.** That's the app:
 
-> auto-setup → demo gigs on first run → dashboard opens in your browser.
-> Close the console window (or Ctrl+C) to stop.
+> auto-setup → dashboard opens in your browser → **create your account** →
+> open **⚙ sources**, switch on Freelancer.com (zero setup) → hit **⚡ fetch gigs**.
+> Real gigs land on the board in seconds, and the radar re-polls every few minutes.
 
 Windows shows a SmartScreen note on unsigned binaries — *More info → Run anyway*.
 
@@ -57,9 +58,9 @@ leadhound doctor    # pre-flight check: config, profile, feeds, db
 leadhound demo      # offline test: injects sample gigs (incl. red-flag traps)
 leadhound queue     # review: approve / reject — drafts ready to send
 leadhound digest    # morning briefing: the best gigs from the last 24h
-leadhound web       # dashboard: kanban pipeline + draft editor in your browser
+leadhound web       # the app: login → connect sources → fetch → snipe
 
-leadhound watch                  # go live: poll real job feeds once
+leadhound watch                  # CLI path: poll real job feeds once
 leadhound watch --loop           # or keep watching on an interval
 leadhound watch --min-score 80   # only the cream
 leadhound telegram               # push gig cards to your phone
@@ -69,7 +70,7 @@ leadhound export --format csv    # your pipeline, out to a spreadsheet
 leadhound mark 42 won            # record outcomes — the scope learns 🐺
 ```
 
-**60-second demo with zero setup:** `leadhound demo && leadhound web` — a dark kanban dashboard of your whole pipeline, fully offline. These are the exact paths the launch video uses.
+**60-second demo with zero setup:** double-click the binary (or `leadhound web`), create a local account, switch on Freelancer.com, hit **⚡ fetch gigs** — a live board in under a minute. Prefer offline first? The ⚙ panel and the CLI both have demo mode (`leadhound demo`).
 
 ## 😩 The problem
 
@@ -82,40 +83,76 @@ Freelance job hunting is a *speed game played while you sleep*:
 
 leadhound replaces all of that with one local watcher that never sleeps and a voice engine that never writes generic fluff.
 
+## 🔌 Sources — connect the job sites
+
+The **⚙ sources** drawer is where the hunting happens. Every source is a connector with its own setup, status line and "⚡ run now" button. Enabled sources re-poll automatically every `interval_minutes` while the app runs.
+
+| Connector | Setup | What you get |
+|---|---|---|
+| **Freelancer.com** | none — public API, optional search keywords | Live project search with real budgets |
+| **RemoteOK** | none — public API | Remote dev jobs |
+| **Remotive** | none — public API | Remote software-dev gigs |
+| **WeWorkRemotely** | none — RSS | The remote freelance category |
+| **Hacker News** | none — public Algolia API | The monthly "Freelancer? Seeking freelancer?" thread |
+| **Upwork** | your free [dev-app keys](https://www.upwork.com/developer/applications) → 🔗 connect | Official OAuth2 flow, auto-refreshed token, real job search |
+| **Fiverr** *(beta)* | your session cookie | Buyer requests, read-only, from your own logged-in session |
+| **Custom RSS / Atom** | any feed URL | Niche boards, Upwork/Fiverr RSS mirrors, agency feeds — anything |
+
+Credentials live in your local SQLite, masked in the UI (`•••`) and never sent anywhere except the site you're connecting to. Fiverr is labeled beta honestly: they have no public API, so if their page layout changes, the connector says so instead of pretending.
+
 ## 🎯 How it works
 
 ```
-[WATCHERS]  ──>  [PARSER]  ──>  [SCORER]  ──>  [VOICE ENGINE]
-  RSS feeds       extract        fit score       proposal draft
-  + job APIs      skills,        0-100 +         in YOUR voice,
-                  money,         breakdown       with YOUR proof
-                  red flags      ("why 92?")     bullets + tone
-                                                      |
-                                              [APPROVAL QUEUE]
-                                              Telegram / CLI
-                                              you tap. you send.
+[SOURCES/CONNECTORS] ──>  [PARSER]  ──>  [SCORER]  ──>  [VOICE ENGINE]
+  Freelancer.com,           extract        fit score       proposal draft
+  RemoteOK, Remotive,       skills,        0-100 +         in YOUR voice,
+  WWR, HN, Upwork (OAuth),  money,         breakdown       with YOUR proof
+  Fiverr, any RSS           red flags      ("why 92?")     bullets + tone
+                                                                 |
+                                                  [API + DASHBOARD + NOTIFIERS]
+                                                  FastAPI · kanban board ·
+                                                  Telegram / Discord / Slack
+                                                  you tap. you send.
 ```
 
 | Stage | What it does |
 |---|---|
-| **Watchers** | Pluggable connectors. Ships ToS-friendly public feeds: WeWorkRemotely (RSS), RemoteOK (public API), Remotive (public API), Hacker News (public Algolia API — the monthly freelancer thread, demand-side posts only). |
+| **Watchers / Connectors** | Pluggable sources. Zero-config: WeWorkRemotely (RSS), RemoteOK, Remotive, Hacker News, Freelancer.com (public APIs). Bring-your-own: Upwork (official OAuth2), Fiverr (session cookie, beta), any RSS/Atom feed. |
 | **Parser** | Regex signal extraction: money (hourly / fixed / ranges), client-quality signals (payment verified, past hires, top-rated), red flags, skill matching. |
 | **Scorer** | `skills 0-60 · budget 0-25 · client quality 0-15 · red flags -15 each`. Every gig ships with a human-readable breakdown: *"58 — matched react, typescript; no budget stated (neutral)"*. |
 | **Voice engine** | Template mode works with zero config. Or plug any OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, local Ollama) and it ghostwrites in your tone, trained on your past winning proposals. |
 | **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards. **You always fire the final shot.** leadhound is a radar + copilot, *not* an auto-bidder. |
 | **Client intel** | Cross-references your own gig history: repeat posters and repeat lowballers get flagged before you spend a minute on the draft. |
 | **Learning loop** | `leadhound mark <id> won/lost/replied` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The tool gets sharper the longer you hunt. |
-| **Web dashboard** | `leadhound web` — a local, zero-dependency kanban board of your pipeline: drag gigs pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
+| **Web dashboard** | `leadhound web` — a login-protected kanban board of your pipeline: create an account, connect sources in the ⚙ drawer, fetch gigs, drag pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Accounts, sessions and per-source configs are stored locally in SQLite. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
 | **GitHub recon** | `leadhound profile learn <you>` — scans your public repos, ranks the languages/topics you actually ship, and merges them into your skills list. Zero-config personalization. |
 | **Data export** | `leadhound export --format csv\|json` — your whole gig history as clean rows for spreadsheets, scripts or your CRM. No lock-in. |
 
+## 🔌 REST API
+
+The dashboard is backed by a real REST API (FastAPI). Run the app and open [`/docs`](http://127.0.0.1:7800/docs) for the interactive OpenAPI schema:
+
+```
+POST /api/auth/register · login · logout        session cookies (HttpOnly, SameSite=Lax)
+GET  /api/state                                 board + stats + calibration
+POST /api/status · /api/draft · /api/outcome    pipeline mutations
+GET  /api/connectors                            all sources + per-account config
+POST /api/connectors/{id} · {id}/run            configure / fetch a source now
+POST /api/fetch                                 fetch every enabled source now
+GET  /api/health                                liveness + version
+```
+
+Every board route is account-scoped, and a background radar re-runs enabled connectors every `interval_minutes` (floor: 5) — the sniping works while you sleep.
+
 ## 🛡️ ToS-safe by design
 
-Platforms ban bots that log in, scrape logged-in pages, and auto-send. leadhound deliberately does none of that:
+Platforms ban bots that log in, scrape logged-in pages, and auto-send. leadhound is built around that line:
 
-- ✅ Reads **public** feeds/APIs only, with a polite `User-Agent`
-- ✅ Polls at **human-rate** intervals (default 15 min)
+- ✅ Zero-config sources read **public** feeds/APIs only, with a polite `User-Agent`
+- ✅ **Upwork** uses the *official* OAuth2 API with keys from your own developer app — no scraping, ever
+- ✅ Polls at **human-rate** intervals (default 15 min, hard floor 5)
 - ✅ **Never submits anything** — you review and send every proposal yourself
+- ⚠️ The Fiverr (beta) connector reads buyer requests from **your own logged-in session cookie**, read-only, nothing auto-sent — it exists because Fiverr has no API. Use your judgment; if that's too spicy for you, skip that connector.
 - ❌ No auto-bidding, no headless-browser scraping, no account automation
 
 It makes you faster — not banned.
@@ -174,7 +211,7 @@ Register it in `SOURCES`, and the parser, scorer, queue, and Telegram pick it up
 <details>
 <summary><b>Is this against Upwork's ToS?</b></summary>
 
-leadhound never logs into Upwork, never scrapes it, and never sends anything through it. It reads public job-board feeds and helps you *prepare* — the same as an RSS reader plus a notepad. You manually open the gig and personally send your proposal. That's what "ToS-safe by design" means; see the section above.
+leadhound's Upwork connector uses Upwork's *official* OAuth2 API with keys from your own free developer app — the sanctioned path, no scraping. The zero-config sources read public job-board feeds and help you *prepare* — the same as an RSS reader plus a notepad. You manually open the gig and personally send your proposal. That's what "ToS-safe by design" means; see the section above.
 </details>
 
 <details>
@@ -210,7 +247,9 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] Web dashboard — local kanban pipeline board + in-browser draft editor (`leadhound web`)
 - [x] `leadhound profile learn` — auto-tune your skills from your public GitHub
 - [x] `leadhound export` — CSV/JSON of the whole pipeline
-- [ ] More sources (niche boards) as community plugins
+- [x] **Real backend** — FastAPI REST API, login system, per-account data
+- [x] **Source connectors** — Freelancer.com, Upwork (OAuth2), Fiverr (beta), custom RSS
+- [ ] Hosted SaaS mode — same core, multi-tenant cloud deploy (the account + connector schema is already shaped for it)
 - [ ] Proposal A/B testing — two drafts, track which tone wins
 - [ ] Agency mode — monitor a bench of freelancer profiles
 

@@ -438,7 +438,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         if not results:
             return JSONResponse(
                 {"ok": True, "results": [],
-                 "hint": "no sources enabled yet — open ⚙ sources and switch one on"}
+                 "hint": "no sources enabled yet — open the accounts tab and connect one"}
             )
         return JSONResponse({"ok": True, "results": results})
 

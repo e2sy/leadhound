@@ -102,8 +102,23 @@ PAGE = r"""<!DOCTYPE html>
   #hero .wolf{font-size:44px; filter:drop-shadow(0 0 12px rgba(88,166,255,.7))}
   #hero h1{font-size:20px; margin:10px 0 6px}
   #hero p{color:var(--dim); font-size:13px; margin-bottom:18px}
-  #hero .hbtns{display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+  #hero ol.check{list-style:none; text-align:left; display:flex; flex-direction:column; gap:10px;
+                 margin:14px auto 4px; max-width:440px}
+  #hero ol.check li{display:flex; align-items:center; gap:10px; background:var(--panel2);
+                    border:1px solid var(--line); border-radius:10px; padding:10px 12px}
+  #hero ol.check .tick{width:24px; height:24px; border-radius:50%; border:1px solid var(--line);
+                       display:flex; align-items:center; justify-content:center;
+                       font-size:12px; color:var(--dim); flex:none}
+  #hero ol.check .lbl{font-size:13px}
+  #hero ol.check .lbl small{display:block; color:var(--dim); font-size:11px}
+  #hero ol.check li.done{border-color:rgba(63,185,80,.45)}
+  #hero ol.check li.done .tick{border-color:var(--green); color:var(--green)}
+  #hero ol.check li.done .tick b{display:none}
+  #hero ol.check li.done .tick::after{content:"✓"}
+  #hero ol.check li.done .lbl{color:var(--dim)}
+  #hero ol.check .grow{flex:1}
   #hero .fine{margin-top:16px; font-size:11.5px; color:var(--dim)}
+  #hero .explore{margin-top:8px; font-size:11.5px; color:var(--dim)}
 
   /* ---------------- auth gate ---------------- */
   #authview{position:fixed; inset:0; z-index:40; display:flex; align-items:center;
@@ -222,16 +237,22 @@ PAGE = r"""<!DOCTYPE html>
   <div class="hintbar" id="hintbar">loading…</div>
   <div id="hero" hidden>
     <div class="wolf">🐺</div>
-    <h1>Your board is empty</h1>
-    <p>Connect sources and fetch real gigs — Freelancer.com works with zero setup,
-       Upwork connects with your app keys, Fiverr with your session cookie,
-       or point the RSS connector at any job feed.</p>
-    <div class="hbtns">
-      <button class="primary" onclick="fetchNow()">⚡ fetch gigs now</button>
-      <button onclick="showView('accounts')">⚙ connect accounts</button>
-      <button onclick="loadDemo()">🎲 load sample gigs</button>
-    </div>
-    <div class="fine">fetching pulls from the live job boards — the radar re-polls every few minutes while this tab's server runs.</div>
+    <h1>Connect your first job source</h1>
+    <p>leadhound hunts <b>real</b> gigs from the sites you already use — no sample data needed. Three steps:</p>
+    <ol class="check">
+      <li id="st1"><span class="tick"><b>1</b></span>
+        <span class="lbl">connect a job site<small>Freelancer.com needs zero setup · Upwork official OAuth · Fiverr beta cookie</small></span>
+        <span class="grow"></span>
+        <button onclick="showView('accounts')">⚙ accounts</button></li>
+      <li id="st2"><span class="tick"><b>2</b></span>
+        <span class="lbl">fetch real gigs<small>scored against your profile the moment they appear</small></span>
+        <span class="grow"></span>
+        <button class="primary" onclick="fetchNow()">⚡ fetch now</button></li>
+      <li id="st3"><span class="tick"><b>3</b></span>
+        <span class="lbl">approve &amp; send from your board<small>drafts ready — you always fire the final shot</small></span></li>
+    </ol>
+    <div class="fine">the radar re-polls your sources every few minutes — sniping works while you sleep.</div>
+    <div class="explore">just exploring? <a href="#" onclick="loadDemo(); return false;">load sample gigs</a></div>
   </div>
   <div id="board"></div>
 </div>
@@ -247,7 +268,8 @@ PAGE = r"""<!DOCTYPE html>
   </div>
   <div id="acctGrid" class="agrid">loading…</div>
   <div class="afoot">credentials live in your local SQLite (secrets masked in the UI) — nothing is sent
-    anywhere except the sites you enable. the radar re-polls enabled sources every few minutes while the server runs.</div>
+    anywhere except the sites you enable. the radar re-polls enabled sources every few minutes while the server runs.
+    · <a href="#" onclick="loadDemo(); return false;">just exploring? load sample gigs</a></div>
 </div>
 
 <div id="toasts"></div>
@@ -400,7 +422,15 @@ window.fetchNow = async () => {
   (d.results || []).filter(r => r.error).forEach(r => toast(label(r.connector) + ": " + r.error, true));
   await load(); loadConnectors();
 };
-window.loadDemo = () => post("/api/demo", {}, "sample gigs loaded ✓").then(load);
+window.loadDemo = () => post("/api/demo", {}, "sample gigs loaded ✓").then(() => { load(); showView("board"); });
+
+function updateSteps(){
+  const connected = S.connectors.some(c => c.enabled);
+  const real = S.jobs.some(j => j.source !== "demo");
+  const s1 = $("#st1"), s2 = $("#st2");
+  if(s1) s1.classList.toggle("done", connected);
+  if(s2) s2.classList.toggle("done", real);
+}
 
 /* ------------------------------------------------- connectors */
 const KINDLABEL = {public:"no setup", keys:"API keys", cookie:"cookie", feed:"feed URL"};
@@ -414,6 +444,7 @@ window.showView = v => {
     if(el) el.style.display = v === "board" ? "" : "none";
   });
   if(v === "accounts") loadConnectors();
+  else updateSteps();
 };
 
 async function loadRadar(){
@@ -650,6 +681,7 @@ function card(j){
 
 function render(){
   chips();
+  updateSteps();
   const q = S.q.trim().toLowerCase();
   let jobs = S.jobs;
   if(q) jobs = jobs.filter(j =>

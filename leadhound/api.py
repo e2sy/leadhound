@@ -6,6 +6,9 @@ FastAPI + your local SQLite. Every dashboard route is account-scoped:
     /api/auth/register|login|logout|me
     /api/state                   board, stats, calibration (auth)
     /api/status|draft|outcome    pipeline mutations (auth)
+    /api/jobs/{id}/snipe-plan    how this gig can be sniped (auth)
+    /api/jobs/{id}/snipe         fire: real bid on Freelancer.com (auth)
+    /api/jobs/{id}/snipe-confirm kit send confirmed by the user (auth)
     /api/demo                    load the sample gigs (auth)
     /api/connectors              source list + per-account config
     /api/connectors/{id}         save enabled/settings
@@ -32,8 +35,10 @@ from pydantic import BaseModel
 
 from . import __version__, auth, connectors, db
 from .config import load_config, load_profile
+from .connectors import freelancer_account as _fla
 from .connectors import upwork as _upwork
 from .engine import intel
+from .engine.voice import draft_proposal
 from .pipeline import ingest_jobs
 from .webassets import PAGE
 
@@ -79,8 +84,48 @@ def build_state(user_id: int | None = None) -> dict:
         "stats": db.stats(),
         "calibration": db.calibration(),
         "demo": demo,
+        "snipe": db.snipe_stats(user_id),
+        "linked": {"freelancer": bool(_fl_tokens(user_id))},
         "jobs": [job_to_dict(j) for j in jobs],
     }
+
+
+# ------------------------------------------------------------------ sniping
+def _fl_tokens(user_id: int | None) -> dict | None:
+    """Linked Freelancer.com account settings, or None when not linked."""
+    if not user_id:
+        return None
+    settings = db.connector_cfg(user_id, "freelancer_account").get("settings") or {}
+    return settings if (settings.get("access_token") or settings.get("refresh_token")) else None
+
+
+def _snipe_text(job: db.Job) -> str:
+    """Ammunition: the stored draft, or a fresh template draft on the spot."""
+    if (job.draft or "").strip():
+        return job.draft
+    _, llm_cfg, _, _ = load_config()
+    job_dict = {
+        "title": job.title,
+        "body": job.body,
+        "hourly": job.hourly,
+        "budget_max": job.budget_max,
+        "tags": [t for t in (job.tags or "").split(",") if t],
+        "source": job.source,
+        "url": job.url,
+    }
+    matched = (job.breakdown.get("skills") or {}).get("matched") or []
+    text, _mode = draft_proposal(job_dict, load_profile(), llm_cfg, matched)
+    return text
+
+
+def _project_id_of(job: db.Job) -> int | None:
+    """Numeric Freelancer.com project id from the guid (freelancer-<id>)."""
+    if job.source != "freelancer":
+        return None
+    try:
+        return int(job.guid.rsplit("-", 1)[-1])
+    except (TypeError, ValueError):
+        return None
 
 
 def _mask_settings(conn: connectors.Connector, settings: dict) -> dict:
@@ -246,6 +291,12 @@ class ConnectorBody(BaseModel):
     settings: dict | None = None
 
 
+class SnipeBody(BaseModel):
+    amount: float | None = None
+    period: int = 7
+    text: str | None = None
+
+
 def create_app(*, start_poller: bool = False) -> FastAPI:
     watch_cfg, _, _, _ = load_config()
     stop_event = threading.Event()
@@ -403,6 +454,90 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         )
         return {"ok": True, "added": sum(1 for r in results if r.is_new)}
 
+    # --------------------------------------------------------------- sniping
+    def _snipe_plan(user: dict, job: db.Job) -> dict:
+        pid = _project_id_of(job)
+        settings = _fl_tokens(user["id"])
+        linked = bool(settings)
+        mode = "api" if (pid and linked) else "kit"
+        return {
+            "ok": True,
+            "id": job.id,
+            "mode": mode,
+            "source": job.source,
+            "url": job.url,
+            "project_id": pid,
+            "linked": linked,
+            "identity": (settings or {}).get("identity"),
+            "amount": job.budget_max or job.budget_min or 0,
+            "period": 7,
+            "text": _snipe_text(job),
+        }
+
+    @app.get("/api/jobs/{job_id}/snipe-plan")
+    def snipe_plan(job_id: int, request: Request) -> dict:
+        user = _user(request)
+        job = _own_job(user, job_id)
+        if job.status not in ("pending", "approved"):
+            raise HTTPException(
+                400, f"this gig is '{job.status}' — only pending/approved gigs can be sniped"
+            )
+        return _snipe_plan(user, job)
+
+    @app.post("/api/jobs/{job_id}/snipe")
+    def snipe_fire(job_id: int, body: SnipeBody, request: Request) -> JSONResponse:
+        """Pull the trigger for real: place a bid on Freelancer.com with the
+        user's own linked account. User-triggered only — no background firing."""
+        user = _user(request)
+        job = _own_job(user, job_id)
+        if job.status not in ("pending", "approved"):
+            raise HTTPException(
+                400, f"this gig is '{job.status}' — only pending/approved gigs can be sniped"
+            )
+        pid = _project_id_of(job)
+        settings = _fl_tokens(user["id"])
+        if not pid or not settings:
+            raise HTTPException(
+                400,
+                "real bids need a linked Freelancer.com account (accounts tab) — "
+                "use the snipe kit for this gig instead",
+            )
+        amount = body.amount if body.amount is not None else (job.budget_max or job.budget_min or 0)
+        if amount <= 0:
+            raise HTTPException(400, "set a bid amount before firing")
+        text = body.text if body.text is not None else _snipe_text(job)
+        try:
+            result, updated = _fla.place_bid(
+                settings, pid, amount=amount, period=max(1, int(body.period)), description=text
+            )
+        except _fla.FreelancerError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if updated:
+            db.save_connector_cfg(user["id"], "freelancer_account", settings=updated)
+        db.mark_sniped(job.id, "freelancer-api", f"bid #{result.get('id')}")
+        return JSONResponse(
+            {
+                "ok": True,
+                "mode": "api",
+                "bid_id": result.get("id"),
+                "amount": round(float(amount), 2),
+                "status": "sent",
+                "url": job.url,
+            }
+        )
+
+    @app.post("/api/jobs/{job_id}/snipe-confirm")
+    def snipe_confirm(job_id: int, request: Request) -> dict:
+        """Kit snipe: the user pasted the proposal and sent it — record the shot."""
+        user = _user(request)
+        job = _own_job(user, job_id)
+        if job.status not in ("pending", "approved"):
+            raise HTTPException(
+                400, f"this gig is '{job.status}' — only pending/approved gigs can be sniped"
+            )
+        db.mark_sniped(job.id, "kit", "send confirmed from snipe dialog")
+        return {"ok": True, "mode": "kit", "status": "sent"}
+
     # ---------------------------------------------------------- connectors
     @app.get("/api/connectors")
     def list_connectors(request: Request) -> dict:
@@ -485,6 +620,62 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         return HTMLResponse(
             "<h2>🐺 Upwork connected</h2>"
             "<p>close this tab and hit ⚡ run now on the Upwork source.</p>"
+        )
+
+    # ------------------------------------------- freelancer account oauth
+    def _fl_redirect_uri(request: Request) -> str:
+        return str(request.base_url).rstrip("/") + "/api/connectors/freelancer_account/callback"
+
+    @app.post("/api/connectors/freelancer_account/auth/start")
+    def freelancer_auth_start(request: Request) -> dict:
+        user = _user(request)
+        settings = db.connector_cfg(user["id"], "freelancer_account").get("settings") or {}
+        if not settings.get("client_id"):
+            raise HTTPException(400, "save your Freelancer.com client id first")
+        state = secrets.token_urlsafe(16)
+        settings["oauth_state"] = state
+        redirect_uri = _fl_redirect_uri(request)
+        db.save_connector_cfg(user["id"], "freelancer_account", settings=settings)
+        return {
+            "ok": True,
+            "authorize_url": _fla.authorize_url(settings["client_id"], redirect_uri, state),
+            "redirect_uri": redirect_uri,
+        }
+
+    @app.get("/api/connectors/freelancer_account/callback")
+    def freelancer_callback(
+        request: Request, code: str | None = None, state: str | None = None
+    ) -> HTMLResponse:
+        user = _user(request)
+        settings = db.connector_cfg(user["id"], "freelancer_account").get("settings") or {}
+        if not code or not state or state != settings.get("oauth_state"):
+            return HTMLResponse(
+                "<h2>🎯 Freelancer.com connect failed</h2>"
+                "<p>state mismatch — start the flow again</p>",
+                status_code=400,
+            )
+        try:
+            updated = _fla.exchange_code(settings, code, _fl_redirect_uri(request))
+        except Exception as exc:
+            return HTMLResponse(
+                "<h2>🎯 Freelancer.com connect failed</h2>"
+                f"<p>{_html.escape(str(exc))}</p>",
+                status_code=400,
+            )
+        updated.pop("oauth_state", None)
+        # greet the user with their real identity right away
+        try:
+            identity, refreshed = _fla.whoami(updated)
+            updated = refreshed or updated
+            updated["identity"] = identity
+        except Exception:  # defensive: identity is cosmetic here, token is saved either way
+            pass
+        db.save_connector_cfg(user["id"], "freelancer_account", settings=updated)
+        who = (updated.get("identity") or {}).get("username")
+        line = f"linked as <b>@{_html.escape(who)}</b>" if who else "account linked"
+        return HTMLResponse(
+            "<h2>🎯 Freelancer.com account linked</h2>"
+            f"<p>{line} — close this tab; the 🎯 snipe button now fires real bids.</p>"
         )
 
     return app

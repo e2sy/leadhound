@@ -130,7 +130,7 @@ class TestBoard:
     def test_state_shape_and_demo_flag(self, authed):
         _seed("s1", 90, "Hot gig")
         st = authed.get("/api/state").json()
-        assert set(st) == {"stats", "calibration", "jobs", "demo", "user"}
+        assert set(st) == {"stats", "calibration", "jobs", "demo", "user", "snipe", "linked"}
         assert st["demo"] is False
         assert st["stats"]["total"] == 1
         assert st["jobs"][0]["title"] == "Hot gig"
@@ -328,6 +328,6 @@ class TestBuildState:
         config.init_files()
         _seed("s1", 90, "Hot gig")
         st = build_state()
-        assert set(st) == {"stats", "calibration", "jobs", "demo"}
+        assert set(st) == {"stats", "calibration", "jobs", "demo", "snipe", "linked"}
         assert json.dumps(st["stats"])  # serializable
         assert st["jobs"][0]["draft"] == "Draft for Hot gig."

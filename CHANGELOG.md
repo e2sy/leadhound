@@ -3,6 +3,23 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.7.0] - 2026-10-04
+
+The sniper release. The loop is closed: leadhound doesn't just find and draft — it fires, with YOUR account, and tracks every shot.
+
+### Added
+- **🎯 Snipe mode** — every pending/approved gig card has a snipe button with a fire dialog:
+  - **🔥 live-fire** (Freelancer.com, linked account): a **real bid is placed on Freelancer.com** through the official API with your own token — editable bid amount + delivery period, bid id recorded, toast confirms the shot. User-triggered only; nothing bids in the background.
+  - **🎯 snipe kit** (every other source): the proposal lands in an editable textarea, one click copies it and opens the gig page in your own logged-in session, and an honest confirm step records the send. No fake buttons.
+- **Freelancer.com account link** — a new card in the accounts hub: official OAuth2 (create a free dev app, paste keys, 🔗 connect), the same auto-refreshing token treatment as Upwork. Shows `linked as @username` once connected.
+- **Snipe audit trail** — jobs record `sniped_at`, the method (`freelancer-api` bid id / `kit` confirmation) and a note; the board's Sniped column shows badges with tooltips.
+- **Sniper stats** — chips for sniped-in-7d and reply rate; `GET /api/state` carries `snipe` + `linked`; learning loop stays: mark replied/won/lost to calibrate.
+- **New API**: `GET /api/jobs/{id}/snipe-plan`, `POST /api/jobs/{id}/snipe`, `POST /api/jobs/{id}/snipe-confirm`, plus the Freelancer.com OAuth `auth/start` + `callback` flow.
+
+### Changed
+- The board's "Sent" column is now **🔥 Sniped** — fired shots with receipts, not manual bookkeeping.
+- Hero checklist step 3 is "snipe with your account" — the app now leads all the way to the trigger.
+
 ## [0.6.0] - 2026-10-04
 
 The real-accounts release. The dashboard now leads with connecting your job sites — the sample data takes a back seat.

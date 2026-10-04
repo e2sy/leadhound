@@ -3,7 +3,9 @@
 # 🐺 leadhound
 
 **The gig sniper.** Watches freelance job boards 24/7, scores every gig against
-*your* profile, and drafts the proposal **in your voice** — you just approve and send.
+*your* profile, drafts the proposal **in your voice** — and when you say go, it
+fires with **your own account**: a real bid on Freelancer.com, or a one-click
+snipe kit everywhere else.
 
 *In freelancing, speed wins. The first five proposals on a fresh gig get
 disproportionate replies. leadhound makes sure you're always among them —
@@ -21,10 +23,10 @@ drafted → ✎ review, ✓ approve, 📋 copy. The radar keeps hunting while yo
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**local-first · login system · 8 job-site connectors · REST API (FastAPI) ·
+**local-first · login system · 8 job-site connectors + account link · live-fire sniping · REST API (FastAPI) ·
 native binaries for Windows / macOS / Linux**
 
-**[Quickstart](#-quickstart--three-ways-to-run-it) · [Usage](#-usage--every-way-to-drive-it) · [Sources](#-sources--connect-the-job-sites) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Author](#-author)**
+**[Quickstart](#-quickstart--three-ways-to-run-it) · [Usage](#-usage--every-way-to-drive-it) · [Sources](#-sources--connect-the-job-sites) · [Snipe mode](#-snipe-mode--fire-with-your-account) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Author](#-author)**
 
 <sub><b>designed & built by <a href="https://github.com/e2sy">Mayank Bhaskar</a></b></sub>
 
@@ -122,8 +124,32 @@ The **🔗 accounts** tab is where the hunting happens. Every job site gets a ca
 | **Upwork** | your free [dev-app keys](https://www.upwork.com/developer/applications) → 🔗 connect | Official OAuth2 flow, auto-refreshed token, real job search |
 | **Fiverr** *(beta)* | your session cookie | Buyer requests, read-only, from your own logged-in session |
 | **Custom RSS / Atom** | any feed URL | Niche boards, Upwork/Fiverr RSS mirrors, agency feeds — anything |
+| **Freelancer.com account (snipe)** | your free [dev-app keys](https://www.freelancer.com/developers/applications) → 🔗 connect | Official OAuth2 account link — arms 🎯 live-fire bids on every Freelancer.com gig. Never fetches gigs; fires shots. |
 
 Credentials live in your local SQLite, masked in the UI (`•••`) and never sent anywhere except the site you're connecting to. Fiverr is labeled beta honestly: they have no public API, so if their page layout changes, the connector says so instead of pretending.
+
+## 🔥 Snipe mode — fire with YOUR account
+
+v0.7.0 closes the loop: finding gigs was half the job — **firing the shot is the other half**, and now leadhound does it with you:
+
+<p align="center">
+  <img src="docs/demo-snipe.gif" alt="the snipe loop — open the fire dialog on a real gig, review the proposal, copy + open the gig, confirm, the card lands in the Sniped column with a receipt" width="100%">
+</p>
+
+Every pending/approved card has a **🎯 snipe** button. The fire dialog knows two honest modes:
+
+| Mode | When | What happens |
+|---|---|---|
+| **🔥 live-fire** | Freelancer.com gig + your linked account | A **real bid** is placed on Freelancer.com via their official API with your own token — you set the amount and delivery period, hit fire, and the platform bid id lands in your board's audit trail. This is your account, your trigger, on the books. |
+| **🎯 snipe kit** | every other source (Upwork, Fiverr, RSS, HN, …) | Your proposal goes into an editable textarea. One click copies it and opens the gig page in your own logged-in browser session. You paste, you send, you tap *"✓ sent it"* — the shot is recorded honestly. (Upwork's API doesn't let third-party apps submit proposals; Fiverr has no API at all. We won't pretend otherwise.) |
+
+Link your Freelancer.com account in the accounts hub: create a free dev app at [freelancer.com/developers](https://www.freelancer.com/developers/applications), paste the keys, hit 🔗 connect — same two-minute OAuth flow as Upwork. The card shows `linked as @you`, and every Freelancer.com gig becomes live-fire.
+
+Every sniped card tracks the outcome (↩ replied · 🏆 won · ✗ lost) — the scope calibrates on real results, and the chips show your 7-day fire rate and reply rate.
+
+<p align="center">
+  <img src="docs/screenshot-snipe.png" alt="the snipe dialog — kit mode with the generated proposal, editable before firing" width="720">
+</p>
 
 ## 🎯 How it works
 
@@ -146,7 +172,7 @@ Credentials live in your local SQLite, masked in the UI (`•••`) and never 
 | **Parser** | Regex signal extraction: money (hourly / fixed / ranges), client-quality signals (payment verified, past hires, top-rated), red flags, skill matching. |
 | **Scorer** | `skills 0-60 · budget 0-25 · client quality 0-15 · red flags -15 each`. Every gig ships with a human-readable breakdown: *"58 — matched react, typescript; no budget stated (neutral)"*. |
 | **Voice engine** | Template mode works with zero config. Or plug any OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, local Ollama) and it ghostwrites in your tone, trained on your past winning proposals. |
-| **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards. **You always fire the final shot.** leadhound is a radar + copilot, *not* an auto-bidder. |
+| **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards, or the 🎯 snipe button on the dashboard. **You pull the trigger** — live-fire bids are user-clicked only, kit snipes are user-confirmed. leadhound is a radar + copilot, *not* a background auto-bidder. |
 | **Client intel** | Cross-references your own gig history: repeat posters and repeat lowballers get flagged before you spend a minute on the draft. |
 | **Learning loop** | `leadhound mark <id> won/lost/replied` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The tool gets sharper the longer you hunt. |
 | **Web dashboard** | `leadhound web` — a login-protected kanban board of your pipeline: create an account, connect job sites in the accounts tab (setup wizards included), fetch gigs, drag pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Accounts, sessions and per-source configs are stored locally in SQLite. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
@@ -159,8 +185,11 @@ The dashboard is backed by a real REST API (FastAPI). Run the app and open [`/do
 
 ```
 POST /api/auth/register · login · logout        session cookies (HttpOnly, SameSite=Lax)
-GET  /api/state                                 board + stats + calibration
+GET  /api/state                                 board + stats + calibration + snipe stats
 POST /api/status · /api/draft · /api/outcome    pipeline mutations
+GET  /api/jobs/{id}/snipe-plan                  how this gig can be sniped (api vs kit)
+POST /api/jobs/{id}/snipe                       fire: real bid via the linked account
+POST /api/jobs/{id}/snipe-confirm               kit send confirmed by the user
 GET  /api/connectors                            all sources + per-account config
 POST /api/connectors/{id} · {id}/run            configure / fetch a source now
 POST /api/fetch                                 fetch every enabled source now
@@ -175,10 +204,11 @@ Platforms ban bots that log in, scrape logged-in pages, and auto-send. leadhound
 
 - ✅ Zero-config sources read **public** feeds/APIs only, with a polite `User-Agent`
 - ✅ **Upwork** uses the *official* OAuth2 API with keys from your own developer app — no scraping, ever
+- ✅ **Freelancer.com live-fire** bids go through their *official* API with **your own token** — placed only when **you** click 🎯 snipe, never in the background, bid id recorded on your board
 - ✅ Polls at **human-rate** intervals (default 15 min, hard floor 5)
-- ✅ **Never submits anything** — you review and send every proposal yourself
+- ✅ Snipe-kit sends happen in **your own browser session** — leadhound prepares the ammo, you pull the trigger
 - ⚠️ The Fiverr (beta) connector reads buyer requests from **your own logged-in session cookie**, read-only, nothing auto-sent — it exists because Fiverr has no API. Use your judgment; if that's too spicy for you, skip that connector.
-- ❌ No auto-bidding, no headless-browser scraping, no account automation
+- ❌ No background auto-bidding, no headless-browser scraping, no account automation
 
 It makes you faster — not banned.
 
@@ -240,9 +270,9 @@ leadhound's Upwork connector uses Upwork's *official* OAuth2 API with keys from 
 </details>
 
 <details>
-<summary><b>Why not an auto-bidder?</b></summary>
+<summary><b>Why not a background auto-bidder?</b></summary>
 
-Because auto-bidders get accounts banned and clients spammed with slop. The 10 seconds you spend tapping "approve" is the feature — quality control stays human. The tool removes the *searching* and the *blank page*, not the judgment.
+Because unattended auto-bidders get accounts banned and clients spammed with slop. v0.7.0 goes as far as a platform officially allows: on Freelancer.com, the 🎯 snipe button places a **real bid through the official API with your own token** — but only when you click, with the amount and proposal you confirmed. On platforms without such an API (Upwork, Fiverr), the snipe kit prepares everything and you pull the trigger in your own session. The tool removes the *searching* and the *blank page*; the judgment — and the trigger — stay yours.
 </details>
 
 <details>

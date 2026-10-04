@@ -9,68 +9,89 @@
 disproportionate replies. leadhound makes sure you're always among them —
 even at 3am.*
 
+<img src="docs/demo.gif" alt="leadhound in motion — log in, connect job sites, gigs land scored on the kanban board, approve one, filter by react" width="100%">
+
+<em>log in → ⚙ connect your job sites → gigs land on the board, scored and
+drafted → ✎ review, ✓ approve, 📋 copy. The radar keeps hunting while you sleep.</em>
+
 [![CI](https://github.com/e2sy/leadhound/actions/workflows/ci.yml/badge.svg)](https://github.com/e2sy/leadhound/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/e2sy/leadhound?include_prereleases&color=success)](https://github.com/e2sy/leadhound/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-`pip install -e .` · Local-first · Login system · 8 job-site connectors · REST API (FastAPI) · Native binaries for Win/Mac/Linux
+**local-first · login system · 8 job-site connectors · REST API (FastAPI) ·
+native binaries for Windows / macOS / Linux**
 
-**[Quickstart](#-quickstart) · [Sources](#-sources---connect-the-job-sites) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Roadmap](#-roadmap)**
+**[Quickstart](#-quickstart--three-ways-to-run-it) · [Usage](#-usage--every-way-to-drive-it) · [Sources](#-sources--connect-the-job-sites) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Author](#-author)**
+
+<sub><b>designed & built by <a href="https://github.com/e2sy">Mayank Bhaskar</a></b></sub>
 
 </div>
 
 ---
 
-<p align="center">
-  <img src="docs/screenshot.png" alt="leadhound dashboard — kanban pipeline with score rings, live gig feed, sources drawer" width="100%">
-</p>
+## ⚡ Quickstart — three ways to run it
 
-<p align="center">
-  <em>Create an account → connect sources → hit <b>⚡ fetch gigs</b>. Real boards, real budgets, real speed.</em><br>
-  <img src="docs/screenshot-sources.png" alt="the sources drawer — 8 connectors with per-source setup" width="720">
-</p>
+### 1. 🖱️ Double-click (no Python needed)
 
-## ⚡ Quickstart
+**Download the binary for your OS from [Releases](https://github.com/e2sy/leadhound/releases/latest) and double-click it.** That's the app:
 
-### 🖱️ Zero-setup (Windows / macOS / Linux binaries)
-
-**Download the binary from [Releases](https://github.com/e2sy/leadhound/releases/latest) and double-click it.** That's the app:
-
-> auto-setup → dashboard opens in your browser → **create your account** →
+> it self-sets-up → your browser opens the dashboard → **create your account** →
 > open **⚙ sources**, switch on Freelancer.com (zero setup) → hit **⚡ fetch gigs**.
 > Real gigs land on the board in seconds, and the radar re-polls every few minutes.
 
 Windows shows a SmartScreen note on unsigned binaries — *More info → Run anyway*.
 
-### 🧑‍💻 From source
+<p align="center">
+  <img src="docs/screenshot-login.png" alt="the login gate — accounts live in your local SQLite, no cloud, no tracking" width="720">
+</p>
+
+### 2. 📦 pip (recommended for daily use)
+
+```bash
+pip install leadhound        # or: pipx install leadhound
+leadhound init               # creates ~/.leadhound with config + your sniper profile
+leadhound web                # the app: login → connect sources → fetch → snipe
+```
+
+### 3. 🧑‍💻 from source (development)
 
 ```bash
 git clone https://github.com/e2sy/leadhound && cd leadhound
 pip install -e .
-
-leadhound init      # creates ~/.leadhound with config + profile
-# -> edit ~/.leadhound/profile.toml  (skills, rates, proof bullets)
-# -> edit ~/.leadhound/config.toml   (sources, Telegram, Discord/Slack, LLM)
-
-leadhound doctor    # pre-flight check: config, profile, feeds, db
-leadhound demo      # offline test: injects sample gigs (incl. red-flag traps)
-leadhound queue     # review: approve / reject — drafts ready to send
-leadhound digest    # morning briefing: the best gigs from the last 24h
-leadhound web       # the app: login → connect sources → fetch → snipe
-
-leadhound watch                  # CLI path: poll real job feeds once
-leadhound watch --loop           # or keep watching on an interval
-leadhound watch --min-score 80   # only the cream
-leadhound telegram               # push gig cards to your phone
-leadhound webhooks               # push gig cards to Discord / Slack
-leadhound profile learn e2sy     # scan your GitHub, auto-tune the skills list
-leadhound export --format csv    # your pipeline, out to a spreadsheet
-leadhound mark 42 won            # record outcomes — the scope learns 🐺
+leadhound web --port 7800
 ```
 
-**60-second demo with zero setup:** double-click the binary (or `leadhound web`), create a local account, switch on Freelancer.com, hit **⚡ fetch gigs** — a live board in under a minute. Prefer offline first? The ⚙ panel and the CLI both have demo mode (`leadhound demo`).
+> Prefer offline first? The ⚙ panel has a **🎲 load sample gigs** button and the CLI has
+> `leadhound demo` — a full board with red-flag traps, no network needed.
+
+## 🎮 Usage — every way to drive it
+
+**The dashboard** (`leadhound web`) is the main cockpit — kanban board, live search,
+in-browser draft editor, sources drawer, background radar. Everything below is optional
+and drives the same pipeline:
+
+| Command | What it does |
+|---|---|
+| `leadhound web` | the app — login, connect sources, approve from the board |
+| `leadhound watch` | poll every configured job feed once, score + draft what's new |
+| `leadhound watch --loop` | keep watching on an interval |
+| `leadhound watch --min-score 80` | only the cream |
+| `leadhound queue` | review the approval queue: approve / reject — drafts ready |
+| `leadhound digest` | morning briefing: the best gigs from the last 24h |
+| `leadhound telegram` | push gig cards to your phone |
+| `leadhound webhooks` | push gig cards to Discord / Slack |
+| `leadhound demo` | inject sample gigs (incl. red-flag traps) to test the flow |
+| `leadhound doctor` | pre-flight check: config, profile, feeds, db |
+| `leadhound profile learn e2sy` | scan your GitHub, auto-tune the skills list |
+| `leadhound export --format csv` | your pipeline, out to a spreadsheet |
+| `leadhound mark 42 won` | record outcomes — the scope learns 🐺 |
+| `leadhound --version` | print the version |
+
+A typical morning: `leadhound digest` with coffee → `leadhound queue` → approve the
+three gigs worth your time → drafts open in your editor → you send them. Total: 10 minutes.
 
 ## 😩 The problem
 
@@ -86,6 +107,10 @@ leadhound replaces all of that with one local watcher that never sleeps and a vo
 ## 🔌 Sources — connect the job sites
 
 The **⚙ sources** drawer is where the hunting happens. Every source is a connector with its own setup, status line and "⚡ run now" button. Enabled sources re-poll automatically every `interval_minutes` while the app runs.
+
+<p align="center">
+  <img src="docs/screenshot-sources.png" alt="the sources drawer — 8 connectors with per-source setup, masked secrets, run-now buttons" width="720">
+</p>
 
 | Connector | Setup | What you get |
 |---|---|---|
@@ -263,12 +288,29 @@ PRs welcome — especially new watchers and scorer improvements. Read [CONTRIBUT
 
 A tool that gets you seen faster is not a tool that gets you hired — your work still has to close the deal. leadhound buys you speed and focus; it doesn't buy skill.
 
+## 👤 Author
+
+<div align="center">
+
+**leadhound is designed, built and maintained by [Mayank Bhaskar](https://github.com/e2sy).**
+
+<a href="https://github.com/e2sy">
+  <img src="https://img.shields.io/badge/GitHub-%40e2sy-181717?logo=github&style=for-the-badge" alt="@e2sy on GitHub">
+</a>
+<a href="https://github.com/e2sy/leadhound/issues">
+  <img src="https://img.shields.io/badge/found%20a%20bug%3F-open%20an%20issue-red?style=for-the-badge" alt="open an issue">
+</a>
+
+</div>
+
 ## License
 
-[MIT](LICENSE) — do whatever, just don't blame the dog.
+[MIT](LICENSE) © Mayank Bhaskar — do whatever, just don't blame the dog.
 
 <div align="center">
 
 If leadhound won you a gig, a ⭐ helps other freelancers find it.
+
+<sub>🐺 leadhound — built by Mayank Bhaskar · local-first, ToS-safe, always hungry</sub>
 
 </div>

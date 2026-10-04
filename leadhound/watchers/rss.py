@@ -20,6 +20,11 @@ from . import hn as _hn
 UA = _UA
 
 
+def _strip_tags(raw: str) -> str:
+    """HTML -> plain text (shared with the connectors package)."""
+    return re.sub(r"<[^>]+>", " ", raw or "")
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 

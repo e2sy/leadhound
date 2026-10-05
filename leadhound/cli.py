@@ -236,6 +236,12 @@ def cmd_stats(args) -> None:
     cal_line = "   ".join(
         f"[bold]{k}[/bold]: {v['n']} (avg {v['avg_score']})" for k, v in cal.items()
     ) or "—"
+    f = db.funnel_stats()
+    rates = []
+    if f["reply_rate"] is not None:
+        rates.append(f"reply {f['reply_rate']:g}%")
+    if f["win_rate"] is not None:
+        rates.append(f"win {f['win_rate']:g}% of resolved")
     console.print(Panel.fit(
         f"Total gigs seen: [bold]{s['total']}[/bold]   Highest score: [bold]{s['highest_score']}[/bold]\n"
         f"Pending:  {s['pending']}   Approved: {s['approved']}\n"
@@ -243,7 +249,9 @@ def cmd_stats(args) -> None:
         f"[bold]In play[/bold]  {s['inplay_n']} gig(s) · ${s['inplay_value']:,.0f}"
         " potential (fixed-price only)\n"
         f"[bold]Won[/bold]      {s['won_n']} gig(s) · ${s['won_value']:,.0f}\n\n"
-        f"[bold]Outcomes[/bold]  {cal_line}\n"
+        + (f"[bold]Sniper[/bold]   {f['sniped']} fired · {f['replies']} replied"
+           f" · {f['wins']} won" + (f"   ({', '.join(rates)})" if rates else "") + "\n\n")
+        + f"[bold]Outcomes[/bold]  {cal_line}\n"
         f"[dim]↳ {hint}[/dim]",
         title="leadhound stats",
     ))
@@ -412,7 +420,7 @@ def main() -> None:
     ex.add_argument("--min-score", type=int, default=0)
     ex.set_defaults(fn=cmd_export)
 
-    mk = sub.add_parser("mark", help="record a gig outcome: replied / won / lost")
+    mk = sub.add_parser("mark", help="record a gig outcome: replied / interview / won / lost")
     mk.add_argument("id", type=int)
     mk.add_argument("outcome", choices=db.OUTCOMES)
     mk.set_defaults(fn=cmd_mark)

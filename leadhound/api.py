@@ -5,6 +5,7 @@ FastAPI + your local SQLite. Every dashboard route is account-scoped:
     /api/health                  liveness + version (no auth)
     /api/auth/register|login|logout|me
     /api/state                   board, stats, calibration (auth)
+    /api/stats                   funnel, per-source + per-method conversion (auth)
     /api/status|draft|outcome    pipeline mutations (auth)
     /api/jobs/{id}/snipe-plan    how this gig can be sniped (auth)
     /api/jobs/{id}/snipe         fire: real bid on Freelancer.com (auth)
@@ -84,8 +85,8 @@ def build_state(user_id: int | None = None) -> dict:
     jobs = db.all_jobs(limit=300, user_id=user_id)
     demo = bool(jobs) and all(j.source == "demo" for j in jobs)
     return {
-        "stats": db.stats(),
-        "calibration": db.calibration(),
+        "stats": db.stats(user_id),
+        "calibration": db.calibration(user_id),
         "demo": demo,
         "snipe": db.snipe_stats(user_id),
         "linked": {"freelancer": bool(_fl_tokens(user_id))},
@@ -412,6 +413,17 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         payload = build_state(user["id"])
         payload["user"] = user
         return payload
+
+    @app.get("/api/stats")
+    def stats(request: Request) -> dict:
+        """The closer's scoreboard: funnel, per-source conversion, per-method."""
+        user = _user(request)
+        return {
+            "ok": True,
+            "funnel": db.funnel_stats(user["id"]),
+            "pipeline": db.stats(user["id"]),
+            "calibration": db.calibration(user["id"]),
+        }
 
     @app.post("/api/status")
     def set_status(body: StatusBody, request: Request) -> dict:

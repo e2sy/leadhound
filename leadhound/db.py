@@ -52,7 +52,7 @@ def _conn() -> sqlite3.Connection:
     return c
 
 
-OUTCOMES = ("replied", "won", "lost")
+OUTCOMES = ("replied", "interview", "won", "lost")
 
 
 def ensure_db() -> None:
@@ -494,26 +494,128 @@ def mark_notified(job_id: int) -> None:
     c.close()
 
 
-def stats() -> dict:
+def stats(user_id: int | None = None) -> dict:
+    """Pipeline counts for this account (user_id=None = the shared CLI pool)."""
     c = _conn()
+    flag, uid = _scope_params(user_id)
     out = {}
     for st in ("pending", "approved", "rejected", "sent"):
-        row = c.execute("SELECT COUNT(*) AS n FROM jobs WHERE status = ?", (st,)).fetchone()
+        row = c.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE status = ? "
+            "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+            (st, flag, uid),
+        ).fetchone()
         out[st] = row["n"]
-    row = c.execute("SELECT COUNT(*) AS n, MAX(score) AS hi FROM jobs").fetchone()
+    row = c.execute(
+        "SELECT COUNT(*) AS n, MAX(score) AS hi FROM jobs "
+        "WHERE (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
+    ).fetchone()
     out["total"], out["highest_score"] = row["n"], row["hi"]
     inplay = c.execute(
-        """
-        SELECT COUNT(*) AS n, COALESCE(SUM(budget_max), 0) AS v
-        FROM jobs WHERE status IN ('approved', 'sent') AND outcome IS NULL
-        """
+        "SELECT COUNT(*) AS n, COALESCE(SUM(budget_max), 0) AS v FROM jobs "
+        "WHERE status IN ('approved', 'sent') AND outcome IS NULL "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
     ).fetchone()
     out["inplay_n"], out["inplay_value"] = inplay["n"], inplay["v"]
     won = c.execute(
         "SELECT COUNT(*) AS n, COALESCE(SUM(budget_max), 0) AS v "
-        "FROM jobs WHERE outcome = 'won'"
+        "FROM jobs WHERE outcome = 'won' "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
     ).fetchone()
     out["won_n"], out["won_value"] = won["n"], won["v"]
+    c.close()
+    return out
+
+
+def funnel_stats(user_id: int | None = None) -> dict:
+    """The closer's scoreboard — everything that happened AFTER firing.
+
+    A reply counts as replied, interview or won. reply_rate is measured
+    against every sniped gig; win_rate only against resolved (won/lost)
+    gigs — the honest closing number, since young shots haven't had time
+    to be won or lost yet.
+    """
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+
+    row = c.execute(
+        "SELECT COUNT(*) AS n FROM jobs WHERE status = 'sent' "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
+    ).fetchone()
+    sniped = row["n"]
+
+    rows = c.execute(
+        "SELECT outcome, COUNT(*) AS n, COALESCE(SUM(budget_max), 0) AS v "
+        "FROM jobs WHERE outcome IN ('replied','interview','won','lost') "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY outcome",
+        (flag, uid),
+    ).fetchall()
+    by = {r["outcome"]: {"n": r["n"], "v": r["v"]} for r in rows}
+    replies = (
+        by.get("replied", {}).get("n", 0)
+        + by.get("interview", {}).get("n", 0)
+        + by.get("won", {}).get("n", 0)
+    )
+    interviews = by.get("interview", {}).get("n", 0)
+    wins = by.get("won", {}).get("n", 0)
+    losses = by.get("lost", {}).get("n", 0)
+    resolved = wins + losses
+
+    out = {
+        "sniped": sniped,
+        "replies": replies,
+        "interviews": interviews,
+        "wins": wins,
+        "losses": losses,
+        "reply_rate": round(100 * replies / sniped, 1) if sniped else None,
+        "win_rate": round(100 * wins / resolved, 1) if resolved else None,
+        "won_value": by.get("won", {}).get("v", 0),
+    }
+
+    src_rows = c.execute(
+        "SELECT source, COUNT(*) AS tracked, "
+        "SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent, "
+        "SUM(CASE WHEN outcome IN ('replied','interview','won') THEN 1 ELSE 0 END) AS replies, "
+        "SUM(CASE WHEN outcome = 'won' THEN 1 ELSE 0 END) AS wins, "
+        "COALESCE(SUM(CASE WHEN outcome = 'won' THEN budget_max ELSE 0 END), 0) AS won_value "
+        "FROM jobs WHERE (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY source",
+        (flag, uid),
+    ).fetchall()
+    out["by_source"] = [
+        {
+            "source": r["source"],
+            "tracked": r["tracked"],
+            "sent": r["sent"] or 0,
+            "replies": r["replies"] or 0,
+            "wins": r["wins"] or 0,
+            "won_value": r["won_value"] or 0,
+            "reply_rate": (
+                round(100 * (r["replies"] or 0) / r["sent"], 1) if r["sent"] else None
+            ),
+        }
+        for r in sorted(src_rows, key=lambda r: (-(r["sent"] or 0), -r["tracked"]))
+    ]
+
+    method_rows = c.execute(
+        "SELECT snipe_method AS m, COUNT(*) AS n, "
+        "SUM(CASE WHEN outcome IN ('replied','interview','won') THEN 1 ELSE 0 END) AS replies, "
+        "SUM(CASE WHEN outcome = 'won' THEN 1 ELSE 0 END) AS wins "
+        "FROM jobs WHERE status = 'sent' AND snipe_method IS NOT NULL "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY snipe_method",
+        (flag, uid),
+    ).fetchall()
+    out["by_method"] = {
+        (r["m"] or "kit"): {
+            "sent": r["n"],
+            "replies": r["replies"] or 0,
+            "wins": r["wins"] or 0,
+        }
+        for r in method_rows
+    }
     c.close()
     return out
 
@@ -553,12 +655,13 @@ def snipe_stats(user_id: int | None = None) -> dict:
     ).fetchone()
     out["sniped_7d"] = row["n"]
     rows = c.execute(
-        "SELECT outcome, COUNT(*) AS n FROM jobs WHERE outcome IN ('replied','won') "
+        "SELECT outcome, COUNT(*) AS n FROM jobs "
+        "WHERE outcome IN ('replied','interview','won') "
         "AND (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY outcome",
         (flag, uid),
     ).fetchall()
     by = {r["outcome"]: r["n"] for r in rows}
-    out["replies"] = by.get("replied", 0) + by.get("won", 0)
+    out["replies"] = by.get("replied", 0) + by.get("interview", 0) + by.get("won", 0)
     out["wins"] = by.get("won", 0)
     out["reply_rate"] = (
         round(100 * out["replies"] / out["sniped_total"], 1)
@@ -569,18 +672,18 @@ def snipe_stats(user_id: int | None = None) -> dict:
     return out
 
 
-def calibration() -> dict:
+def calibration(user_id: int | None = None) -> dict:
     """Score-vs-outcome aggregation: does the sniper scope actually track wins?
 
     Returns {outcome: {"n": int, "avg_score": float}} plus a human hint.
     """
     c = _conn()
+    flag, uid = _scope_params(user_id)
     rows = c.execute(
-        """
-        SELECT outcome, COUNT(*) AS n, AVG(score) AS avg_score
-        FROM jobs WHERE outcome IS NOT NULL
-        GROUP BY outcome
-        """
+        "SELECT outcome, COUNT(*) AS n, AVG(score) AS avg_score "
+        "FROM jobs WHERE outcome IS NOT NULL "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY outcome",
+        (flag, uid),
     ).fetchall()
     c.close()
     out = {r["outcome"]: {"n": r["n"], "avg_score": round(r["avg_score"], 1)} for r in rows}
@@ -589,15 +692,17 @@ def calibration() -> dict:
 
 
 def _calibration_hint(by_outcome: dict) -> str:
-    won, lost, replied = (
+    won, lost, replied, interview = (
         by_outcome.get("won"),
         by_outcome.get("lost"),
         by_outcome.get("replied"),
+        by_outcome.get("interview"),
     )
     if not won and not lost:
-        if replied:
+        if replied or interview:
+            n = (replied or {"n": 0})["n"] + (interview or {"n": 0})["n"]
             return (
-                f"{replied['n']} reply(ies) so far — keep marking outcomes after "
+                f"{n} reply/interview(s) so far — keep marking outcomes after "
                 "each 'won'/'lost' to calibrate."
             )
         return "No outcomes marked yet. After a client replies, run: leadhound mark <id> replied"

@@ -3,6 +3,23 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.8.0] - 2026-10-05
+
+The closer's release. Sniping was v0.7.0; v0.8.0 teaches the sniper to **count kills** — and to learn which ammo wins.
+
+### Added
+- **📊 Stats tab — the sniper's scoreboard**: six funnel cards (shots fired, reply rate, win rate, won value, in-play value, interviews), **per-source conversion bars** (which source actually converts), **live-fire vs kit** split, and the calibration chips. Backed by a new account-scoped `GET /api/stats`.
+- **🎤 Interview outcome** — the funnel is now sent → replied → **interview** → won/lost. Interviews count as replies everywhere (stats, chips, calibration hints).
+- **⚔ Proposal A/B testing** — every draft editor has A/B tabs ("⚔ add B" clones your draft), the snipe dialog gains a version picker, and the fired variant is recorded on the job (`kit · B` / `live-fire · B` badges). The scoreboard grows a **proposal duel** panel with a verdict line once both sides have shots. `GET/POST /api/jobs/{id}/variants` + per-variant stats.
+- **⌨ Keyboard cockpit** — `j`/`k` aim through the board with wrap-around, `a` approve, `x`/`r` reject, `s` snipe, `o` open gig, `c` copy proposal, `d` edit draft; acting auto-aims the next gig, `?` shows the shortcut card. Keys pause while you type.
+- **📧 Email notifications** — plain-STMTP gig cards (score, money, matched skills, red flags, gig link + draft) via the new `[email]` config section; stdlib only, works with Gmail app passwords, Fastmail, or your own server. `leadhound doctor` checks the credentials.
+- **🔔 Browser alerts** — optional bell toggle: new gigs raise a native browser notification (top score + title) while the dashboard is open; click it to jump to the board.
+
+### Changed
+- `db.stats()` and `db.calibration()` are now **account-scoped** like the rest of the dashboard — accounts no longer see each other's counts.
+- `leadhound stats` (CLI) prints a sniper line with reply/win rates.
+- 59 new tests (funnel math, A/B attribution, SMTP fakes, scoping); 265 total.
+
 ## [0.7.0] - 2026-10-04
 
 The sniper release. The loop is closed: leadhound doesn't just find and draft — it fires, with YOUR account, and tracks every shot.

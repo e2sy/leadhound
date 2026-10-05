@@ -23,10 +23,10 @@ drafted → ✎ review, ✓ approve, 📋 copy. The radar keeps hunting while yo
 [![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**local-first · login system · 8 job-site connectors + account link · live-fire sniping · REST API (FastAPI) ·
-native binaries for Windows / macOS / Linux**
+**local-first · login system · 8 job-site connectors + account link · live-fire sniping · closer's scoreboard · proposal A/B ·
+REST API (FastAPI) · native binaries for Windows / macOS / Linux**
 
-**[Quickstart](#-quickstart--three-ways-to-run-it) · [Usage](#-usage--every-way-to-drive-it) · [Sources](#-sources--connect-the-job-sites) · [Snipe mode](#-snipe-mode--fire-with-your-account) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Author](#-author)**
+**[Quickstart](#-quickstart--three-ways-to-run-it) · [Usage](#-usage--every-way-to-drive-it) · [Sources](#-sources--connect-the-job-sites) · [Snipe mode](#-snipe-mode--fire-with-your-account) · [Scoreboard](#-scoreboard--count-your-kills) · [How it works](#-how-it-works) · [REST API](#-rest-api) · [FAQ](#-faq) · [Author](#-author)**
 
 <sub><b>designed & built by <a href="https://github.com/e2sy">Mayank Bhaskar</a></b></sub>
 
@@ -145,11 +145,27 @@ Every pending/approved card has a **🎯 snipe** button. The fire dialog knows t
 
 Link your Freelancer.com account in the accounts hub: create a free dev app at [freelancer.com/developers](https://www.freelancer.com/developers/applications), paste the keys, hit 🔗 connect — same two-minute OAuth flow as Upwork. The card shows `linked as @you`, and every Freelancer.com gig becomes live-fire.
 
-Every sniped card tracks the outcome (↩ replied · 🏆 won · ✗ lost) — the scope calibrates on real results, and the chips show your 7-day fire rate and reply rate.
+Every sniped card tracks the outcome (↩ replied · 🎤 interview · 🏆 won · ✗ lost) — the scope calibrates on real results, the chips show your 7-day fire rate and reply rate, and the [📊 scoreboard](#-scoreboard--count-your-kills) turns it all into per-source, per-method and per-proposal numbers.
 
 <p align="center">
   <img src="docs/screenshot-snipe.png" alt="the snipe dialog — kit mode with the generated proposal, editable before firing" width="720">
 </p>
+
+## 📊 Scoreboard — count your kills
+
+v0.8.0 is the closer's release: firing was the loop — **counting kills is what makes you better**. The new 📊 stats tab turns your pipeline into honest numbers:
+
+<p align="center">
+  <img src="docs/screenshot-stats.png" alt="the sniper's scoreboard — funnel cards, per-source conversion bars, live-fire vs kit split, scope calibration" width="720">
+</p>
+
+- **Funnel cards** — shots fired, reply rate, win rate (of *resolved* gigs, the honest kind), won value, in-play value and 🎤 interviews. Outcomes are now `sent → replied → interview → won/lost`, and interviews count as replies.
+- **Per-source conversion** — every source gets a bar and a reply rate. Feed the green rows, prune the dead ones: your RemoteOK may be noise while Freelancer.com actually converts.
+- **🔥 live-fire vs 🎯 kit** — does the real-API bid reply more than the copy-paste kit? The scoreboard splits your shots by method.
+- **⚔ Proposal duel (A/B)** — clone any draft as variant **B** (one click in the draft editor), fire both versions across gigs, and the scoreboard crowns the winner with a verdict line. Which proposal went out is recorded on every sniped card (`kit · B`).
+- **🧠 Scope calibration** — winners vs losers by average score, with hints to tighten your skills/red flags.
+
+And because speed is the whole product, v0.8.0 adds a **⌨ keyboard cockpit** (`j`/`k` aim, `a` approve, `s` snipe, `o` open, `c` copy, `d` draft — `?` for the card) and two new ways to hear about a fresh gig: **📧 email cards** via plain SMTP (`[email]` in config.toml — Gmail app passwords work) and a **🔔 browser bell** that pings you the moment new gigs land while the dashboard is open.
 
 ## 🎯 How it works
 
@@ -162,7 +178,8 @@ Every sniped card tracks the outcome (↩ replied · 🏆 won · ✗ lost) — t
                                                                  |
                                                   [API + DASHBOARD + NOTIFIERS]
                                                   FastAPI · kanban board ·
-                                                  Telegram / Discord / Slack
+                                                  Telegram / Discord / Slack /
+                                                  email · browser bell
                                                   you tap. you send.
 ```
 
@@ -174,8 +191,8 @@ Every sniped card tracks the outcome (↩ replied · 🏆 won · ✗ lost) — t
 | **Voice engine** | Template mode works with zero config. Or plug any OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, local Ollama) and it ghostwrites in your tone, trained on your past winning proposals. |
 | **Approval queue** | Rich CLI queue or Telegram/Discord/Slack cards, or the 🎯 snipe button on the dashboard. **You pull the trigger** — live-fire bids are user-clicked only, kit snipes are user-confirmed. leadhound is a radar + copilot, *not* a background auto-bidder. |
 | **Client intel** | Cross-references your own gig history: repeat posters and repeat lowballers get flagged before you spend a minute on the draft. |
-| **Learning loop** | `leadhound mark <id> won/lost/replied` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The tool gets sharper the longer you hunt. |
-| **Web dashboard** | `leadhound web` — a login-protected kanban board of your pipeline: create an account, connect job sites in the accounts tab (setup wizards included), fetch gigs, drag pending → approved → sent, edit drafts in-browser, mark outcomes, live search. Accounts, sessions and per-source configs are stored locally in SQLite. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
+| **Learning loop** | `leadhound mark <id> replied/interview/won/lost` → stats calibrate: winners vs losers by score, with hints to tighten your scope. The 📊 scoreboard adds per-source conversion, live-fire vs kit split and the proposal A/B duel. The tool gets sharper the longer you hunt. |
+| **Web dashboard** | `leadhound web` — a login-protected kanban board of your pipeline: create an account, connect job sites in the accounts tab (setup wizards included), fetch gigs, drag pending → approved → sent, edit drafts in-browser (with ⚔ A/B variants), mark outcomes — reply, interview, won, lost — read the 📊 scoreboard, drive the whole board from the keyboard (`?` shows the keys), and arm the 🔔 bell for new-gig browser alerts. Accounts, sessions and per-source configs are stored locally in SQLite. Binds to 127.0.0.1 (or `--host 0.0.0.0` to drive it from your phone). |
 | **GitHub recon** | `leadhound profile learn <you>` — scans your public repos, ranks the languages/topics you actually ship, and merges them into your skills list. Zero-config personalization. |
 | **Data export** | `leadhound export --format csv\|json` — your whole gig history as clean rows for spreadsheets, scripts or your CRM. No lock-in. |
 
@@ -186,7 +203,9 @@ The dashboard is backed by a real REST API (FastAPI). Run the app and open [`/do
 ```
 POST /api/auth/register · login · logout        session cookies (HttpOnly, SameSite=Lax)
 GET  /api/state                                 board + stats + calibration + snipe stats
+GET  /api/stats                                 the closer's scoreboard: funnel, per-source, per-method, A/B
 POST /api/status · /api/draft · /api/outcome    pipeline mutations
+GET/POST /api/jobs/{id}/variants                proposal A/B variants (list + upsert)
 GET  /api/jobs/{id}/snipe-plan                  how this gig can be sniped (api vs kit)
 POST /api/jobs/{id}/snipe                       fire: real bid via the linked account
 POST /api/jobs/{id}/snipe-confirm               kit send confirmed by the user
@@ -306,7 +325,7 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] **Source connectors** — Freelancer.com, Upwork (OAuth2), Fiverr (beta), custom RSS
 - [x] **Accounts hub** — connection state, setup wizards, save & test probing, radar heartbeat
 - [ ] Hosted SaaS mode — same core, multi-tenant cloud deploy (the account + connector schema is already shaped for it)
-- [ ] Proposal A/B testing — two drafts, track which tone wins
+- [x] **Proposal A/B testing** — clone any draft as variant B, fire both, the scoreboard crowns the winner
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

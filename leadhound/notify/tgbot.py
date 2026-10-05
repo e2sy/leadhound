@@ -7,6 +7,8 @@ Your gigs live in your pocket now:
     /approve 42      move it to approved
     /snipe 42 500    Freelancer live-fire (amount optional) — asks before firing
     /stats           the scoreboard, pocket-sized
+    /digest          board summary + the three best gigs
+    /ping            is the radar alive?
     /help            what you just read
 
 Design rules, learned the hard way:
@@ -99,6 +101,34 @@ def fmt_gig_card(j, draft: str) -> str:
     )
     tail = f"\n<i>{draft[:2800]}</i>" if draft else "\n<i>(no draft yet)</i>"
     return head + tail
+
+
+def compose_ping(armed: int, last_run: str | None) -> str:
+    """Pure /ping text — the api layer feeds it db numbers."""
+    when = str(last_run or "never")[:16]
+    return f"🐺 alive — {armed} source(s) armed · last sweep {when}"
+
+
+def compose_digest(jobs: list, stats: dict) -> str:
+    """Pure /digest text: counts, scoreboard, and the three best pending
+    gigs. jobs = the user's Job rows, stats = db.snipe_stats() output."""
+    pend = sorted(
+        (j for j in jobs if j.status == "pending"),
+        key=lambda j: (-j.score, -j.id),
+    )
+    appr = sum(1 for j in jobs if j.status == "approved")
+    lines = [
+        "🐺 <b>board digest</b>",
+        f"🎯 {len(pend)} pending · ✅ {appr} approved · "
+        f"🔥 {stats.get('sniped', 0)} sniped",
+        f"↩ {stats.get('reply_rate', '—')}% replies · "
+        f"🏆 {stats.get('wins', 0)}W / {stats.get('losses', 0)}L",
+    ]
+    if pend:
+        lines.append("")
+        lines.append("<b>best on the radar</b>")
+        lines += [fmt_queue_line(j) for j in pend[:3]]
+    return "\n".join(lines)
 
 
 # ------------------------------------------------------------------ transport
@@ -232,6 +262,10 @@ class PocketBot:
             return self._snipe(args, chat)
         if cmd == "stats":
             return str(self.deps["stats"]()), None
+        if cmd == "ping":
+            return str(self.deps["ping"]()), None
+        if cmd == "digest":
+            return str(self.deps["digest"]()), None
         return (
             "unknown command — /help lists the arsenal", None
         )
@@ -244,6 +278,8 @@ class PocketBot:
             "/approve &lt;id&gt; — move to approved\n"
             "/snipe &lt;id&gt; [amount] — Freelancer live-fire (asks first)\n"
             "/stats — the scoreboard\n"
+            "/digest — board summary + the three best gigs\n"
+            "/ping — is the radar alive?\n"
             "/help — this card"
         ).replace("&lt;", "<").replace("&gt;", ">")
 

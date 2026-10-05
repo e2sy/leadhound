@@ -994,8 +994,22 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         def stats() -> dict:
             return db.snipe_stats(user_id)
 
+        def ping() -> str:
+            """Liveness + radar freshness in one line."""
+            cfgs = db.connector_cfgs(user_id)
+            armed = sum(1 for c in cfgs.values() if c.get("enabled"))
+            last = max((c.get("last_run") or "" for c in cfgs.values()), default="")
+            return tgbot.compose_ping(armed, last or None)
+
+        def digest() -> str:
+            """The whole board in one pocket-sized card."""
+            return tgbot.compose_digest(
+                db.all_jobs(user_id=user_id), db.snipe_stats(user_id)
+            )
+
         return {"queue": queue, "gig": gig, "approve": approve,
-                "plan": plan, "fire": fire, "stats": stats}
+                "plan": plan, "fire": fire, "stats": stats,
+                "ping": ping, "digest": digest}
 
     @app.post("/api/notify/telegram/listen")
     def listen_toggle(body: ListenBody, request: Request) -> dict:

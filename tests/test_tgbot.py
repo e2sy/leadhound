@@ -202,3 +202,38 @@ def test_unknown_command_and_garbage(seeded):
     assert "/help" in text
     text, _ = b._command("", ["junk"], "4242")
     assert "/help" in text or "pocket sniper" in text
+
+
+# ------------------------------------------------------------------ /ping /digest
+def test_ping_reports_alive(seeded):
+    deps = _deps(seeded, [])
+    deps["ping"] = lambda: tgbot.compose_ping(2, None)
+    b = _bot(seeded, deps)
+    b._handle({"message": {"chat": {"id": 4242}, "text": "/ping"}})
+    assert len(b.bot.sent) == 1
+    assert "alive" in b.bot.sent[0][1] and "armed" in b.bot.sent[0][1]
+    assert "last sweep never" in b.bot.sent[0][1]
+
+
+def test_compose_digest_counts_and_ranks_top_gigs(seeded):
+    seeded["mk"]("dg-1", 91)
+    seeded["mk"]("dg-2", 84, status="approved")
+    seeded["mk"]("dg-3", 70, status="sent")
+    text = tgbot.compose_digest(
+        db.all_jobs(user_id=seeded["uid"]), db.snipe_stats(seeded["uid"])
+    )
+    assert "board digest" in text
+    assert "2 pending" in text and "1 approved" in text
+    assert "gig dg-1" in text  # the best pending gig surfaced
+
+
+def test_compose_digest_empty_board(seeded):
+    text = tgbot.compose_digest([], db.snipe_stats(seeded["uid"]))
+    assert "0 pending" in text and "best on the radar" not in text
+
+
+def test_help_lists_every_command(seeded):
+    b = _bot(seeded, _deps(seeded, []))
+    text, _ = b._command("help", [], "4242")
+    for word in ("/queue", "/gig", "/approve", "/snipe", "/stats", "/digest", "/ping"):
+        assert word in text

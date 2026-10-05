@@ -41,6 +41,7 @@ from .connectors import freelancer_account as _fla
 from .connectors import upwork as _upwork
 from .engine import intel
 from .engine.voice import draft_proposal
+from .notify import telegram as tg
 from .pipeline import ingest_jobs
 from .webassets import PAGE
 
@@ -314,6 +315,14 @@ class SnipeBody(BaseModel):
 class ConnectorBody(BaseModel):
     enabled: bool | None = None
     settings: dict | None = None
+
+
+class NotifyBody(BaseModel):
+    token: str | None = None
+    chat_id: str | None = None
+    enabled: bool | None = None
+    listen: bool | None = None
+    push_min_score: int | None = None
 
 
 def create_app(*, start_poller: bool = False) -> FastAPI:
@@ -642,6 +651,48 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                  "hint": "no sources enabled yet — open the accounts tab and connect one"}
             )
         return JSONResponse({"ok": True, "results": results})
+
+    # -------------------------------------------------------- notify targets
+    @app.get("/api/notify")
+    def get_notify(request: Request) -> dict:
+        user = _user(request)
+        cfg = db.notify_cfg(user["id"])
+        return {
+            "ok": True,
+            "notify": {
+                "has_token": bool(cfg.get("telegram_token")),
+                "telegram_chat_id": cfg.get("telegram_chat_id") or "",
+                "telegram_enabled": bool(cfg.get("telegram_enabled")),
+                "listen_enabled": bool(cfg.get("listen_enabled")),
+                "push_min_score": int(cfg.get("push_min_score") or 70),
+            },
+        }
+
+    @app.post("/api/notify/telegram")
+    def save_notify(body: NotifyBody, request: Request) -> dict:
+        user = _user(request)
+        db.save_notify_cfg(
+            user["id"],
+            telegram_token=body.token,
+            telegram_chat_id=body.chat_id,
+            telegram_enabled=body.enabled,
+            listen_enabled=body.listen,
+            push_min_score=body.push_min_score,
+        )
+        return {"ok": True, **get_notify(request)}
+
+    @app.post("/api/notify/telegram/test")
+    def test_notify(request: Request) -> JSONResponse:
+        user = _user(request)
+        cfg = db.notify_cfg(user["id"])
+        token = cfg.get("telegram_token") or ""
+        chat = cfg.get("telegram_chat_id") or ""
+        if not (token and chat):
+            raise HTTPException(
+                400, "save your bot token and chat id first — then fire the test"
+            )
+        ok, detail = tg.send_test_message(token, chat)
+        return JSONResponse({"ok": ok, "detail": detail}, status_code=200 if ok else 502)
 
     # ------------------------------------------------------ upwork oauth
     def _redirect_uri(request: Request) -> str:

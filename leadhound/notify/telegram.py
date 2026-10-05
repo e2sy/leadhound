@@ -60,3 +60,27 @@ def send_draft(bot_token: str, chat_id: str, job) -> bool:
         return r.ok
     except Exception:
         return False
+
+
+def send_test_message(bot_token: str, chat_id: str) -> tuple[bool, str]:
+    """Pocket-sniper arming check. Returns (ok, telegram's own words) so the
+    dashboard can show the platform's verdict verbatim instead of guessing."""
+    try:
+        r = requests.post(
+            API.format(token=bot_token),
+            json={
+                "chat_id": chat_id,
+                "text": "🐺 leadhound pocket sniper armed — gigs will land here.",
+                "disable_web_page_preview": True,
+            },
+            timeout=20,
+        )
+        if r.ok:
+            return True, "Telegram accepted the message"
+        try:
+            detail = r.json().get("description", f"HTTP {r.status_code}")
+        except Exception:
+            detail = f"HTTP {r.status_code}"
+        return False, detail
+    except Exception as exc:
+        return False, str(exc)

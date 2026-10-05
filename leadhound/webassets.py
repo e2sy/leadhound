@@ -338,6 +338,31 @@ PAGE = r"""<!DOCTYPE html>
     <button class="primary" onclick="fetchNow()">⚡ fetch all sources</button>
   </div>
   <div id="acctGrid" class="agrid">loading…</div>
+  <div id="tgCard" class="conn">
+    <div class="connhead">
+      <b>📱 telegram pocket sniper</b>
+      <span class="badge off" id="tgBadge">off</span>
+    </div>
+    <div class="blurb">gigs that clear your score bar land in your chat seconds after the
+      radar spots them — read the pitch on your phone, then hit the dashboard (or the bot,
+      coming next) to fire.</div>
+    <div class="fields">
+      <div><label for="tgToken">bot token</label>
+        <input id="tgToken" type="password" placeholder="123456:ABC-DEF…" autocomplete="off">
+        <div class="hint">from @BotFather — stored locally, never shown again</div></div>
+      <div><label for="tgChat">chat id</label>
+        <input id="tgChat" type="text" placeholder="e.g. 424242" autocomplete="off">
+        <div class="hint">message @userinfobot on Telegram to see yours</div></div>
+      <div><label for="tgMin">push gigs scoring ≥</label>
+        <input id="tgMin" type="number" min="0" max="100" step="5" value="70"></div>
+    </div>
+    <div class="connacts">
+      <button class="primary" onclick="saveTelegram()">💾 save</button>
+      <button onclick="testTelegram()">📨 send test message</button>
+      <button id="tgTgl" onclick="toggleTelegram()">switch on</button>
+    </div>
+    <div class="cstat" id="tgStat">no bot token yet</div>
+  </div>
   <div class="afoot">credentials live in your local SQLite (secrets masked in the UI) — nothing is sent
     anywhere except the sites you enable. the radar re-polls enabled sources every few minutes while the server runs.
     · <a href="#" onclick="loadDemo(); return false;">just exploring? load sample gigs</a></div>
@@ -738,7 +763,7 @@ window.showView = v => {
     const el = $(sel);
     if(el) el.style.display = v === "board" ? "" : "none";
   });
-  if(v === "accounts") loadConnectors();
+  if(v === "accounts"){ loadConnectors(); loadNotify(); }
   else if(v === "stats") loadStats();
   else updateSteps();
 };
@@ -984,6 +1009,51 @@ window.oauthConnect = async cid => {
   if(!d) return;
   toast("authorize in the tab that opens, then ⚡ save & test");
   window.open(d.authorize_url, "_blank", "noopener");
+};
+
+/* ------------------------------------------------- telegram pocket sniper */
+async function loadNotify(){
+  try{
+    const d = await (await fetch("/api/notify")).json();
+    if(!d.ok) return;
+    const n = d.notify;
+    $("#tgToken").placeholder = n.has_token ? "••• saved — type to replace" : "123456:ABC-DEF…";
+    $("#tgChat").value = n.telegram_chat_id || "";
+    $("#tgMin").value = n.push_min_score;
+    $("#tgTgl").textContent = n.telegram_enabled ? "switch off" : "switch on";
+    const badge = $("#tgBadge");
+    badge.textContent = n.telegram_enabled ? "armed" : "off";
+    badge.className = "badge " + (n.telegram_enabled ? "ok" : "off");
+    $("#tgStat").textContent = n.has_token
+      ? "bot token saved ✓" + (n.listen_enabled ? " · two-way listening" : "")
+      : "no bot token yet";
+  }catch{ /* dashboard stays usable offline */ }
+}
+window.saveTelegram = async () => {
+  const tok = $("#tgToken").value.trim();
+  const body = {
+    chat_id: $("#tgChat").value.trim(),
+    push_min_score: Math.max(0, Math.min(100, +$("#tgMin").value || 0)),
+  };
+  if(tok) body.token = tok;
+  const d = await post("/api/notify/telegram", body, "telegram saved ✓");
+  if(d){ $("#tgToken").value = ""; loadNotify(); }
+};
+window.testTelegram = async () => {
+  try{
+    const r = await fetch("/api/notify/telegram/test", {method: "POST"});
+    const d = await r.json().catch(() => ({ok:false, detail:"bad response"}));
+    toast(d.ok ? "📱 test message sent — check your chat" : "telegram says: " + (d.detail || "failed"), !d.ok);
+  }catch{ toast("network error", true); }
+};
+window.toggleTelegram = async () => {
+  try{
+    const cur = (await (await fetch("/api/notify")).json()).notify;
+    if(!cur || !cur.has_token){ toast("save a bot token first", true); return; }
+    const d = await post("/api/notify/telegram",
+      {enabled: !cur.telegram_enabled}, cur.telegram_enabled ? "push off" : "📱 push armed");
+    if(d) loadNotify();
+  }catch{ toast("network error", true); }
 };
 
 /* ------------------------------------------------- board */

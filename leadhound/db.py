@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -157,6 +158,19 @@ def _ensure_accounts(c: sqlite3.Connection) -> None:
             last_error TEXT,
             last_count INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, connector_id)
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notify_settings (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            telegram_token TEXT DEFAULT '',
+            telegram_chat_id TEXT DEFAULT '',
+            telegram_enabled INTEGER DEFAULT 0,
+            listen_enabled INTEGER DEFAULT 0,
+            push_min_score INTEGER DEFAULT 70,
+            updated_at TEXT
         )
         """
     )
@@ -350,6 +364,121 @@ def enabled_connector_rows() -> list[tuple[int, str]]:
     ).fetchall()
     c.close()
     return [(r["user_id"], r["connector_id"]) for r in rows]
+
+
+# ------------------------------------------------------------- notify settings
+def _seed_notify_from_file() -> dict:
+    """One-time import path: config.toml's [telegram] block becomes the seed
+    for a user's notify settings. File missing or empty -> silent no-op."""
+    with contextlib.suppress(Exception):
+        from .config import load_config
+
+        _, _, tg_cfg, _, _ = load_config()
+        if tg_cfg.bot_token and tg_cfg.chat_id:
+            return {
+                "telegram_token": tg_cfg.bot_token,
+                "telegram_chat_id": tg_cfg.chat_id,
+                "telegram_enabled": 1 if tg_cfg.enabled else 0,
+            }
+    return {}
+
+
+def notify_cfg(user_id: int) -> dict:
+    """Per-user notification settings. Seeds once from config.toml for
+    pre-0.9 users so nobody has to re-paste their bot token."""
+    c = _conn()
+    row = c.execute(
+        "SELECT * FROM notify_settings WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if row is None:
+        seed = _seed_notify_from_file()
+        if seed:
+            c.execute(
+                "INSERT INTO notify_settings (user_id, telegram_token, "
+                "telegram_chat_id, telegram_enabled) VALUES (?, ?, ?, ?)",
+                (
+                    user_id,
+                    seed["telegram_token"],
+                    seed["telegram_chat_id"],
+                    seed["telegram_enabled"],
+                ),
+            )
+            c.commit()
+            row = c.execute(
+                "SELECT * FROM notify_settings WHERE user_id = ?", (user_id,)
+            ).fetchone()
+    c.close()
+    if row is None:
+        return {
+            "user_id": user_id,
+            "telegram_token": "",
+            "telegram_chat_id": "",
+            "telegram_enabled": 0,
+            "listen_enabled": 0,
+            "push_min_score": 70,
+            "updated_at": None,
+        }
+    return dict(row)
+
+
+def save_notify_cfg(
+    user_id: int,
+    *,
+    telegram_token: str | None = None,
+    telegram_chat_id: str | None = None,
+    telegram_enabled: bool | None = None,
+    listen_enabled: bool | None = None,
+    push_min_score: int | None = None,
+) -> dict:
+    """Partial update — only the passed fields change, the rest persist."""
+    cur = notify_cfg(user_id)  # current values (may be the virtual default)
+    merged = {
+        "telegram_token": cur["telegram_token"],
+        "telegram_chat_id": cur["telegram_chat_id"],
+        "telegram_enabled": int(bool(cur["telegram_enabled"])),
+        "listen_enabled": int(bool(cur["listen_enabled"])),
+        "push_min_score": int(cur["push_min_score"]),
+    }
+    if telegram_token is not None:
+        merged["telegram_token"] = str(telegram_token).strip()
+    if telegram_chat_id is not None:
+        merged["telegram_chat_id"] = str(telegram_chat_id).strip()
+    if telegram_enabled is not None:
+        merged["telegram_enabled"] = int(bool(telegram_enabled))
+    if listen_enabled is not None:
+        merged["listen_enabled"] = int(bool(listen_enabled))
+    if push_min_score is not None:
+        merged["push_min_score"] = max(0, min(100, int(push_min_score)))
+    c = _conn()
+    c.execute(
+        """
+        INSERT INTO notify_settings (user_id, telegram_token, telegram_chat_id,
+                                     telegram_enabled, listen_enabled, push_min_score,
+                                     updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+            telegram_token = excluded.telegram_token,
+            telegram_chat_id = excluded.telegram_chat_id,
+            telegram_enabled = excluded.telegram_enabled,
+            listen_enabled = excluded.listen_enabled,
+            push_min_score = excluded.push_min_score,
+            updated_at = excluded.updated_at
+        """,
+        (
+            user_id,
+            merged["telegram_token"],
+            merged["telegram_chat_id"],
+            merged["telegram_enabled"],
+            merged["listen_enabled"],
+            merged["push_min_score"],
+        ),
+    )
+    c.commit()
+    row = c.execute(
+        "SELECT * FROM notify_settings WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    c.close()
+    return dict(row) if row else {}
 
 
 def upsert_job(

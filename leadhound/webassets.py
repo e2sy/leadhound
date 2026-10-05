@@ -296,6 +296,7 @@ PAGE = r"""<!DOCTYPE html>
     </nav>
     <button id="autoBtn" class="on" onclick="toggleAuto()" title="auto-refresh every 8s">⟳ auto</button>
     <button onclick="toggleKeyHelp()" title="keyboard shortcuts (?)">⌨</button>
+    <button id="bellBtn" onclick="toggleBell()" title="browser alerts when new gigs land (while the dashboard is open)">🔔</button>
     <button class="primary" onclick="fetchNow()" title="fetch every enabled source now">⚡ fetch gigs</button>
     <div id="userbox">
       <span class="who" id="whoami"></span>
@@ -408,7 +409,7 @@ const COLS = [
 const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
            demo:false, user:null, connectors:[], authMode:"login", view:"board",
            snipePlan:null, snipe:{}, linked:{}, stats:null, draftSide:"A", snipeVariant:"A",
-           sel:null, selOrder:[], selScroll:false};
+           sel:null, selOrder:[], selScroll:false, knownIds:null};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -488,6 +489,7 @@ async function load(){
     const d = await r.json();
     S.jobs = d.jobs; S.cal = d.calibration || {}; S.demo = !!d.demo;
     S.snipe = d.snipe || {}; S.linked = d.linked || {};
+    bellCheck(d.jobs);
     render();
   }catch(e){
     $("#hintbar").textContent = "⚠ could not reach the leadhound server — is it still running?";
@@ -577,6 +579,41 @@ window.fetchNow = async () => {
   await load(); loadConnectors();
 };
 window.loadDemo = () => post("/api/demo", {}, "sample gigs loaded ✓").then(() => { load(); showView("board"); });
+
+/* ------------------------------------------------- browser alerts */
+window.toggleBell = async () => {
+  const on = localStorage.getItem("lh_bell") === "1";
+  if(on){
+    localStorage.setItem("lh_bell", "0");
+    $("#bellBtn").classList.remove("on");
+    toast("browser alerts off");
+    return;
+  }
+  if(!("Notification" in window)){ toast("this browser has no Notification API", true); return; }
+  const perm = Notification.permission === "granted"
+    ? "granted" : await Notification.requestPermission();
+  if(perm !== "granted"){ toast("notifications are blocked in the browser settings", true); return; }
+  localStorage.setItem("lh_bell", "1");
+  $("#bellBtn").classList.add("on");
+  toast("🔔 alerts on — new gigs ping you while the dashboard is open");
+};
+
+function bellCheck(jobs){
+  const bell = $("#bellBtn");
+  if(bell) bell.classList.toggle("on", localStorage.getItem("lh_bell") === "1");
+  const ids = new Set(jobs.map(j => j.id));
+  if(S.knownIds === null){ S.knownIds = ids; return; }  // baseline: no spam on boot
+  const fresh = jobs.filter(j => !S.knownIds.has(j.id));
+  S.knownIds = ids;
+  const on = localStorage.getItem("lh_bell") === "1";
+  if(!on || !fresh.length || !("Notification" in window) || Notification.permission !== "granted") return;
+  const top = fresh.slice().sort((a, b) => b.score - a.score)[0];
+  try{
+    const n = new Notification("🐺 leadhound — " + fresh.length + " new gig(s)",
+      {body: "top score " + top.score + " · " + top.title.slice(0, 90)});
+    n.onclick = () => { window.focus(); showView("board"); };
+  }catch(e){ /* some browsers throttle background notifications */ }
+}
 
 /* ------------------------------------------------- snipe flow */
 window.openSnipe = async id => {

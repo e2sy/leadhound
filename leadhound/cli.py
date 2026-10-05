@@ -54,7 +54,7 @@ def cmd_init(args) -> None:
 def _process(jobs: list[dict], min_score: int, notify: bool, quiet: bool = False) -> None:
     """Score → draft → store → optionally push to Telegram (via the shared pipeline)."""
     profile = load_profile()
-    _, llm_cfg, tg_cfg, wh_cfg = load_config()
+    _, llm_cfg, tg_cfg, wh_cfg, em_cfg = load_config()
     results = ingest_jobs(
         jobs,
         profile=profile,
@@ -62,6 +62,7 @@ def _process(jobs: list[dict], min_score: int, notify: bool, quiet: bool = False
         min_score=min_score,
         tg_cfg=tg_cfg if notify else None,
         wh_cfg=wh_cfg if notify else None,
+        em_cfg=em_cfg if notify else None,
     )
     new_count = sum(1 for r in results if r.is_new)
     if quiet:
@@ -89,7 +90,7 @@ def _process(jobs: list[dict], min_score: int, notify: bool, quiet: bool = False
 
 def cmd_watch(args) -> None:
     _require_init()
-    watch_cfg, _, _, _ = load_config()
+    watch_cfg, _, _, _, _ = load_config()
     min_score = args.min_score if args.min_score is not None else watch_cfg.min_score
     sources = args.sources.split(",") if args.sources else watch_cfg.sources
 
@@ -193,7 +194,7 @@ def cmd_show(args) -> None:
 
 def cmd_telegram(args) -> None:
     _require_init()
-    watch_cfg, _, tg_cfg, _ = load_config()
+    watch_cfg, _, tg_cfg, _, _ = load_config()
     if not tg_cfg.enabled:
         console.print("[red]Telegram not enabled in config.toml[/red]")
         return
@@ -211,7 +212,7 @@ def cmd_telegram(args) -> None:
 
 def cmd_webhooks(args) -> None:
     _require_init()
-    watch_cfg, _, _, wh_cfg = load_config()
+    watch_cfg, _, _, wh_cfg, _ = load_config()
     if not (wh_cfg.discord_webhook_url or wh_cfg.slack_webhook_url):
         console.print("[red]No webhooks configured — fill [webhooks] in config.toml[/red]")
         return

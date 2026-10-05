@@ -44,6 +44,18 @@ chat_id = ""
 # Leave empty to disable. Both can be active at once.
 discord_webhook_url = ""
 slack_webhook_url = ""
+
+[email]
+# Optional: gig cards in your inbox via plain SMTP (Gmail, Fastmail, your own
+# server). Gmail: use an App Password (myaccount.google.com/apppasswords),
+# smtp_host = "smtp.gmail.com", smtp_port = 587.
+enabled = false
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+smtp_user = ""
+smtp_pass = ""
+use_tls = true
+to_addr = ""
 """
 
 PROFILE_TOML = """\
@@ -115,6 +127,17 @@ class WebhookConfig:
 
 
 @dataclass
+class EmailConfig:
+    enabled: bool = False
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    use_tls: bool = True
+    to_addr: str = ""
+
+
+@dataclass
 class WatchConfig:
     min_score: int = 60
     interval_minutes: int = 15
@@ -154,12 +177,13 @@ def init_files() -> None:
     ensure_db()
 
 
-def load_config() -> tuple[WatchConfig, LLMConfig, TelegramConfig, WebhookConfig]:
+def load_config() -> tuple[WatchConfig, LLMConfig, TelegramConfig, WebhookConfig, EmailConfig]:
     raw = tomllib.loads(config_path().read_text())
     w = raw.get("watch", {})
     ll = raw.get("llm", {})
     t = raw.get("telegram", {})
     wb = raw.get("webhooks", {})
+    em = raw.get("email", {})
     return (
         WatchConfig(
             min_score=int(w.get("min_score", 60)),
@@ -180,6 +204,15 @@ def load_config() -> tuple[WatchConfig, LLMConfig, TelegramConfig, WebhookConfig
         WebhookConfig(
             discord_webhook_url=str(wb.get("discord_webhook_url", "")),
             slack_webhook_url=str(wb.get("slack_webhook_url", "")),
+        ),
+        EmailConfig(
+            enabled=bool(em.get("enabled", False)),
+            smtp_host=str(em.get("smtp_host", "smtp.gmail.com")),
+            smtp_port=int(em.get("smtp_port", 587)),
+            smtp_user=str(em.get("smtp_user", "")),
+            smtp_pass=str(em.get("smtp_pass", "")),
+            use_tls=bool(em.get("use_tls", True)),
+            to_addr=str(em.get("to_addr", "")),
         ),
     )
 

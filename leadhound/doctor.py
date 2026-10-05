@@ -81,7 +81,7 @@ def _check_config() -> list[Check]:
     if not is_initialized():
         return [Check("config", False, "not initialized", "run: leadhound init")]
     try:
-        w, llm, tg, whc = load_config()
+        w, llm, tg, whc, emc = load_config()
     except Exception as exc:
         return [Check("config", False, f"unparsable: {exc}", "fix the TOML syntax in config.toml")]
     checks = [
@@ -126,6 +126,13 @@ def _check_config() -> list[Check]:
         checks.append(Check(
             "webhooks: slack", False, "not a Slack webhook URL",
             "expecting https://hooks.slack.com/services/...",
+        ))
+    if emc.enabled:
+        creds = bool(emc.smtp_host) and bool(emc.to_addr)
+        checks.append(Check(
+            "email", creds,
+            f"smtp {emc.smtp_host}:{emc.smtp_port} → {emc.to_addr}" if creds else "missing credentials",
+            "" if creds else "fill smtp_host and to_addr, or set enabled=false",
         ))
     return checks
 
@@ -174,7 +181,7 @@ def run_checks(offline: bool = False) -> list[Check]:
     checks.append(_check_db())
     if not offline:
         try:
-            w, _, _, _ = load_config()
+            w, _, _, _, _ = load_config()
             checks += _check_feeds(w.sources)
         except Exception:
             checks.append(Check("feeds", None, "skipped — config unparsable"))

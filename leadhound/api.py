@@ -111,7 +111,7 @@ def _snipe_text(job: db.Job) -> str:
     """Ammunition: the stored draft, or a fresh template draft on the spot."""
     if (job.draft or "").strip():
         return job.draft
-    _, llm_cfg, _, _ = load_config()
+    _, llm_cfg, _, _, _ = load_config()
     job_dict = {
         "title": job.title,
         "body": job.body,
@@ -213,7 +213,7 @@ def run_connector_for(user_id: int, cid: str, *, wait: bool = True) -> dict:
         except Exception as exc:
             db.record_connector_run(user_id, cid, "error", str(exc), 0)
             return {"connector": cid, "new": 0, "error": str(exc)}
-        watch_cfg, llm_cfg, tg_cfg, wh_cfg = load_config()
+        watch_cfg, llm_cfg, tg_cfg, wh_cfg, em_cfg = load_config()
         results = ingest_jobs(
             jobs,
             profile=load_profile(),
@@ -221,6 +221,7 @@ def run_connector_for(user_id: int, cid: str, *, wait: bool = True) -> dict:
             min_score=watch_cfg.min_score,
             tg_cfg=tg_cfg,
             wh_cfg=wh_cfg,
+            em_cfg=em_cfg,
             user_id=user_id,
         )
         new = sum(1 for r in results if r.is_new)
@@ -316,7 +317,7 @@ class ConnectorBody(BaseModel):
 
 
 def create_app(*, start_poller: bool = False) -> FastAPI:
-    watch_cfg, _, _, _ = load_config()
+    watch_cfg, _, _, _, _ = load_config()
     stop_event = threading.Event()
 
     @asynccontextmanager
@@ -473,7 +474,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         user = _user(request)
         from .demo import DEMO_JOBS
 
-        _, llm_cfg, _, _ = load_config()
+        _, llm_cfg, _, _, _ = load_config()
         results = ingest_jobs(
             [dict(j) for j in DEMO_JOBS],
             profile=load_profile(),

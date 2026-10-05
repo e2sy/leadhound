@@ -23,6 +23,16 @@ def _simple(fn):
     return lambda settings: (fn(), None)
 
 
+def _wwr_fetch(settings):
+    """WeWorkRemotely adapter — passes the preset channel through."""
+    return _rss.weworkremotely(settings or {}), None
+
+
+def _remotive_fetch(settings):
+    """Remotive adapter — passes the preset channel through."""
+    return _rss.remotive(settings or {}), None
+
+
 REGISTRY: dict[str, Connector] = {
     c.id: c
     for c in [
@@ -37,15 +47,15 @@ REGISTRY: dict[str, Connector] = {
             id="remotive",
             label="Remotive",
             kind="public",
-            blurb="Remote software-dev gigs via Remotive's public API.",
-            fetch=_simple(_rss.remotive),
+            blurb="Remote software-dev gigs via Remotive's public API — starter packs switch its channel.",
+            fetch=_remotive_fetch,
         ),
         Connector(
             id="weworkremotely",
             label="WeWorkRemotely",
             kind="public",
-            blurb="The remote freelance category RSS feed.",
-            fetch=_simple(_rss.weworkremotely),
+            blurb="The remote RSS feeds — starter packs pick the category channel.",
+            fetch=_wwr_fetch,
         ),
         Connector(
             id="hackernews",

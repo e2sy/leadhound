@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 import feedparser
 import requests
 
+from ..presets import channel as _channel
 from . import UA as _UA
 from . import hn as _hn
 
@@ -30,10 +31,12 @@ def _now_iso() -> str:
 
 
 # ---------------------------------------------------------------- RSS sources
-def weworkremotely() -> list[dict]:
-    """WeWorkRemotely — remote freelance jobs RSS feed."""
+def weworkremotely(settings: dict | None = None) -> list[dict]:
+    """WeWorkRemotely — remote jobs RSS. `settings['preset']` picks the
+    category channel (see presets.CHANNELS); default is the freelance feed."""
+    slug = _channel("weworkremotely", (settings or {}).get("preset")) or "remote-freelance-jobs"
     feed = feedparser.parse(
-        "https://weworkremotely.com/categories/remote-freelance-jobs.rss",
+        f"https://weworkremotely.com/categories/{slug}.rss",
         request_headers=UA,
     )
     out = []
@@ -90,10 +93,12 @@ def remoteok() -> list[dict]:
     return out
 
 
-def remotive() -> list[dict]:
-    """Remotive public jobs API."""
+def remotive(settings: dict | None = None) -> list[dict]:
+    """Remotive public jobs API. `settings['preset']` picks the category
+    (see presets.CHANNELS); default is software-dev."""
+    cat = _channel("remotive", (settings or {}).get("preset")) or "software-dev"
     r = requests.get(
-        "https://remotive.com/api/remote-jobs?category=software-dev",
+        f"https://remotive.com/api/remote-jobs?category={cat}",
         headers=UA,
         timeout=20,
     )

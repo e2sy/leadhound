@@ -44,6 +44,7 @@ from .engine.voice import draft_proposal, improve_draft
 from .notify import telegram as tg
 from .notify import tgbot
 from .pipeline import ingest_jobs
+from .presets import PACKS
 from .webassets import ICON_SVG, MANIFEST, PAGE, SW_JS
 
 _MAX_PREVIEW = 400
@@ -523,6 +524,39 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         if not db.set_snipe_rule_enabled(user["id"], rule_id, body.enabled):
             raise HTTPException(404, "no such rule")
         return {"ok": True}
+
+    # ---------------------------------------------------------------- presets
+    @app.get("/api/presets")
+    def presets_list(request: Request) -> dict:
+        """Starter packs — one-click niche bundles."""
+        _user(request)
+        return {
+            "ok": True,
+            "packs": [
+                {"key": k, "label": p["label"], "blurb": p["blurb"]}
+                for k, p in PACKS.items()
+            ],
+        }
+
+    @app.post("/api/presets/{key}/apply")
+    def presets_apply(key: str, request: Request) -> dict:
+        """Arm a pack: switch the pack's sources on and point each at its
+        channel. Existing settings (queries, cookies, keys) are kept."""
+        user = _user(request)
+        p = PACKS.get(key)
+        if p is None:
+            raise HTTPException(404, "no such pack")
+        armed: list[str] = []
+        for t in p["targets"]:
+            cid, pk = t["connector"], t["preset"]
+            if connectors.get(cid) is None:
+                continue
+            stored = db.connector_cfg(user["id"], cid).get("settings") or {}
+            stored = dict(stored)
+            stored["preset"] = pk
+            db.save_connector_cfg(user["id"], cid, enabled=True, settings=stored)
+            armed.append(cid)
+        return {"ok": True, "label": p["label"], "armed": armed}
 
     @app.get("/api/health")
     def health() -> dict:

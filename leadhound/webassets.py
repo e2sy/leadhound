@@ -355,6 +355,15 @@ PAGE = r"""<!DOCTYPE html>
     <div class="spacer"></div>
     <button class="primary" onclick="fetchNow()">⚡ fetch all sources</button>
   </div>
+  <div id="packsCard" class="conn">
+    <div class="connhead">
+      <b>📦 starter packs</b>
+      <span class="kchip feed">one click</span>
+    </div>
+    <div class="blurb">arm a whole niche in one click — picks the right feed channel on each
+      source and switches it on. your existing queries, cookies and keys are kept.</div>
+    <div class="connacts" id="packsRow">loading…</div>
+  </div>
   <div id="acctGrid" class="agrid">loading…</div>
   <div id="tgCard" class="conn">
     <div class="connhead">
@@ -848,7 +857,7 @@ window.showView = v => {
     const el = $(sel);
     if(el) el.style.display = v === "board" ? "" : "none";
   });
-  if(v === "accounts"){ loadConnectors(); loadNotify(); loadRules(); }
+  if(v === "accounts"){ loadConnectors(); loadNotify(); loadRules(); loadPacks(); }
   else if(v === "stats") loadStats();
   else updateSteps();
 };
@@ -1094,6 +1103,22 @@ window.oauthConnect = async cid => {
   if(!d) return;
   toast("authorize in the tab that opens, then ⚡ save & test");
   window.open(d.authorize_url, "_blank", "noopener");
+};
+
+/* ------------------------------------------------- starter packs */
+async function loadPacks(){
+  try{
+    const d = await (await fetch("/api/presets")).json();
+    if(!d.ok) return;
+    $("#packsRow").innerHTML = (d.packs || []).map(p =>
+      `<button onclick="applyPack('${esc(p.key)}')" title="${esc(p.blurb)}">${esc(p.label)}</button>`).join("");
+  }catch{ /* dashboard stays usable offline */ }
+}
+window.applyPack = async key => {
+  const d = await post(`/api/presets/${key}/apply`, {}, null);
+  if(!d) return;
+  toast(`${d.label} armed — ${d.armed.length} source(s) on, right channels set ✓`);
+  loadConnectors();
 };
 
 /* ------------------------------------------------- telegram pocket sniper */

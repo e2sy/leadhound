@@ -217,6 +217,12 @@ PAGE = r"""<!DOCTYPE html>
   button.fire:hover{background:#da3633; color:#fff}
   .snote{margin-top:9px; font-size:11px; color:var(--dim)}
   .schip{font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--amber); color:var(--amber)}
+  .dtabs{display:flex; gap:4px; margin-top:7px}
+  .dtabs button{font-size:11px; padding:3px 9px; border-radius:7px}
+  .dtabs button.sel{border-color:var(--blue); color:var(--blue); font-weight:700}
+  .svar label{display:block; font-size:11px; color:var(--dim); margin:8px 0 3px}
+  .svchips{display:flex; gap:6px; flex-wrap:wrap}
+  .svchips button.sel{border-color:var(--amber); color:var(--amber); font-weight:700}
 
   /* ---------------- stats tab ---------------- */
   #statsView{max-width:1100px; margin:0 auto; padding:14px 18px 30px}
@@ -341,6 +347,7 @@ PAGE = r"""<!DOCTYPE html>
     <h3 id="sTitle"></h3>
     <div class="ssub" id="sSub"></div>
     <div class="smode" id="sMode"></div>
+    <div class="svar" id="sVar" hidden></div>
     <label for="sText">proposal</label>
     <textarea id="sText" style="min-height:150px"></textarea>
     <div id="sApiFields" hidden>
@@ -373,7 +380,7 @@ const COLS = [
 ];
 const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
            demo:false, user:null, connectors:[], authMode:"login", view:"board",
-           snipePlan:null, snipe:{}, linked:{}, stats:null};
+           snipePlan:null, snipe:{}, linked:{}, stats:null, draftSide:"A", snipeVariant:"A"};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -481,17 +488,45 @@ window.toggleDraft = id => {
   else{
     if(S.editing !== null) saveDraft(S.editing, true);
     const j = S.jobs.find(x => x.id === id);
-    S.editing = id; S.draftVal = j ? (j.draft || "") : "";
+    S.editing = id; S.draftSide = "A"; S.draftVal = j ? (j.draft || "") : "";
   }
+  render();
+};
+window.draftSide = (id, side) => {
+  if(S.editing !== id) return;
+  S.draftSide = side;
+  const j = S.jobs.find(x => x.id === id);
+  if(side === "A") S.draftVal = j ? (j.draft || "") : "";
+  else{
+    const v = (j && (j.variants || []).find(x => x.label === side));
+    S.draftVal = v ? v.text : "";
+  }
+  render();
+};
+window.seedVariant = async id => {
+  const j = S.jobs.find(x => x.id === id);
+  if(!j) return;
+  const base = (S.editing === id && S.draftSide === "A") ? S.draftVal : (j.draft || "");
+  const d = await post(`/api/jobs/${id}/variants`,
+    {label:"B", text: base}, "variant B created — tweak it, save, fire the duel ⚔");
+  if(!d) return;
+  j.variants = d.variants;
+  S.draftSide = "B"; S.draftVal = base;
   render();
 };
 window.onDraftInput = id => { if(S.editing === id) S.draftVal = event.target.value; };
 window.saveDraft = (id, silent) => {
   if(S.editing !== id) return;
   const val = S.draftVal;
+  const side = S.draftSide || "A";
   if(val === null) return;
   S.editing = null; S.draftVal = "";
-  post("/api/draft", {id, text:val}, silent ? null : "draft saved ✓");
+  if(side === "A"){
+    post("/api/draft", {id, text:val}, silent ? null : "draft saved ✓");
+  } else {
+    post(`/api/jobs/${id}/variants`, {label: side, text: val},
+         silent ? null : "variant " + side + " saved ✓").then(load);
+  }
 };
 window.copyDraft = async id => {
   const j = S.jobs.find(x => x.id === id);
@@ -529,6 +564,16 @@ window.openSnipe = async id => {
 function renderSnipeDialog(){
   const p = S.snipePlan;
   const isApi = p.mode === "api";
+  S.snipeVariant = "A";
+  const vars = p.variants || [];
+  if(vars.length){
+    const chips = [`<button class="sel" data-v="A" onclick="pickVariant('A')">A · main draft</button>`]
+      .concat(vars.map(v =>
+        `<button data-v="${esc(v.label)}" onclick="pickVariant('${esc(v.label)}')">${esc(v.label)} · duel</button>`));
+    $("#sVar").innerHTML = `<label>proposal version — track which one wins</label>
+      <div class="svchips">${chips.join("")}</div>`;
+    $("#sVar").hidden = false;
+  } else { $("#sVar").hidden = true; }
   $("#sTitle").textContent = p.source + " · " + (p.amount ? "$" + fmt(p.amount) : "budget TBD");
   $("#sSub").textContent = "🎯 " + (isApi
     ? "live-fire mode — the bid lands on Freelancer.com before you close this dialog"
@@ -556,6 +601,19 @@ function renderSnipeDialog(){
 
 window.closeSnipe = () => { $("#snipeModal").hidden = true; S.snipePlan = null; };
 
+window.pickVariant = label => {
+  S.snipeVariant = label;
+  const p = S.snipePlan;
+  if(!p) return;
+  if(label === "A") $("#sText").value = p.text || "";
+  else{
+    const v = (p.variants || []).find(x => x.label === label);
+    $("#sText").value = v ? v.text : "";
+  }
+  document.querySelectorAll("#sVar .svchips button").forEach(b =>
+    b.classList.toggle("sel", b.dataset.v === label));
+};
+
 window.onSnipeFire = async () => {
   const p = S.snipePlan;
   if(!p) return;
@@ -565,7 +623,8 @@ window.onSnipeFire = async () => {
     btn.disabled = true;
     const d = await post(`/api/jobs/${p.id}/snipe`,
       {amount: parseFloat($("#sAmount").value) || 0,
-       period: parseInt($("#sPeriod").value) || 7, text}, null);
+       period: parseInt($("#sPeriod").value) || 7, text,
+       variant: S.snipeVariant || "A"}, null);
     btn.disabled = false;
     if(!d) return;
     closeSnipe();
@@ -584,10 +643,12 @@ window.onSnipeFire = async () => {
 window.onSnipeConfirm = async () => {
   const p = S.snipePlan;
   if(!p) return;
-  const d = await post(`/api/jobs/${p.id}/snipe-confirm`, {}, null);
+  const d = await post(`/api/jobs/${p.id}/snipe-confirm`,
+    {variant: S.snipeVariant || "A"}, null);
   if(!d) return;
   closeSnipe();
-  toast("🎯 sniped — mark the outcome when they reply");
+  toast("🎯 sniped" + (S.snipeVariant && S.snipeVariant !== "A" ? " (variant " + S.snipeVariant + ")" : "")
+    + " — mark the outcome when they reply");
   load();
 };
 
@@ -637,6 +698,13 @@ function renderStats(){
   const f = d.funnel || {}, p = d.pipeline || {}, cal = d.calibration || {};
   const pct = x => x == null ? "—" : x + "%";
   const money0 = n => "$" + Number(n || 0).toLocaleString("en-US");
+  const duelVerdict = (a, b) => {
+    if(!a || !b || !a.sent || !b.sent) return "";
+    const ra = a.replies / a.sent, rb = b.replies / b.sent;
+    if(ra === rb) return "";
+    const win = ra > rb ? "main draft (A)" : "variant B";
+    return `<div class="sline">⚔ <b>${esc(win)}</b> replies more so far — crown it or keep testing.</div>`;
+  };
   const cards = [
     {k:"shots fired", v:f.sniped ?? 0, s:"sniped gigs, all time", cls:""},
     {k:"reply rate", v:pct(f.reply_rate), s:f.replies + " of " + (f.sniped ?? 0) + " replied", cls:""},
@@ -656,6 +724,16 @@ function renderStats(){
   const mline = m => m
     ? `<div class="sline">${m.sent} fired · <b>${m.replies} replied</b>${m.wins ? " · 🏆 " + m.wins + " won" : ""}</div>`
     : `<div class="sline">none yet</div>`;
+  const bv = f.by_variant || {};
+  const duel = (bv["A"] && bv["B"]) ? `
+    <div class="spanel">
+      <h3>proposal duel (A/B)</h3>
+      <div class="sline">🅰 <b>main draft</b></div>
+      ${mline(bv["A"])}
+      <div class="sline">🅱 <b>variant B</b></div>
+      ${mline(bv["B"])}
+      ${duelVerdict(bv["A"], bv["B"])}
+    </div>` : "";
   const calBits = Object.entries(cal).filter(([k]) => k !== "hint").map(([k, v]) =>
     `<span class="chip">${esc(k)}: ${v.n} (avg ${v.avg_score})</span>`).join(" ");
   const body = $("#statsBody");
@@ -676,6 +754,7 @@ function renderStats(){
       <div class="sline">🎯 <b>snipe kit</b> — proposal copied + gig opened, you paste &amp; send</div>
       ${mline(mKit)}
     </div>
+    ${duel}
     <div class="spanel">
       <h3>scope calibration</h3>
       <div class="sline">${calBits || "no outcomes marked yet"}</div>
@@ -885,11 +964,14 @@ function card(j){
     `<span class="chip">${esc(t)}</span>`).join("");
   const ob = j.outcome
     ? `<span class="obadge o-${esc(j.outcome)}">${esc(j.outcome)}</span>` : "";
+  const vtag = (j.sent_variant && j.sent_variant !== "A")
+    ? " · " + esc(j.sent_variant) : "";
   const sbadge = j.snipe_method === "freelancer-api"
-    ? `<span class="schip" title="${esc(j.snipe_note || "")}">🔥 live-fire bid</span>`
+    ? `<span class="schip" title="${esc(j.snipe_note || "")}">🔥 live-fire bid${vtag}</span>`
     : j.snipe_method === "kit"
-      ? `<span class="schip" title="${esc(j.snipe_note || "")}">🎯 kit</span>` : "";
+      ? `<span class="schip" title="${esc(j.snipe_note || "")}">🎯 kit${vtag}</span>` : "";
   const open = S.editing === j.id;
+  const hasB = (j.variants || []).some(v => v.label === "B");
 
   let acts = "";
   if(j.status === "pending")
@@ -933,9 +1015,15 @@ function card(j){
       <button onclick="copyDraft(${j.id})">⧉ copy</button>
     </div>
     ${open ? `<div class="draftbox">
+        <div class="dtabs">
+          <button class="${(S.draftSide||"A")==="A"?"sel":""}" onclick="draftSide(${j.id},'A')">A · main</button>
+          ${hasB
+            ? `<button class="${S.draftSide==="B"?"sel":""}" onclick="draftSide(${j.id},'B')">B · duel</button>`
+            : `<button onclick="seedVariant(${j.id})" title="clone the draft as variant B and see which tone wins">⚔ add B — A/B test</button>`}
+        </div>
         <textarea oninput="onDraftInput(${j.id})" id="ta${j.id}"></textarea>
         <div class="draftbtns">
-          <button onclick="saveDraft(${j.id})">💾 save draft</button>
+          <button onclick="saveDraft(${j.id})">💾 save ${(S.draftSide||"A")==="A" ? "draft" : "variant " + esc(S.draftSide)}</button>
           <button onclick="copyDraft(${j.id})">⧉ copy</button>
         </div>
       </div>` : ""}

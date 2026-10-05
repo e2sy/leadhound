@@ -10,6 +10,7 @@ FastAPI + your local SQLite. Every dashboard route is account-scoped:
     /api/jobs/{id}/snipe-plan    how this gig can be sniped (auth)
     /api/jobs/{id}/snipe         fire: real bid on Freelancer.com (auth)
     /api/jobs/{id}/snipe-confirm kit send confirmed by the user (auth)
+    /api/jobs/{id}/variants      proposal A/B variants list + upsert (auth)
     /api/demo                    load the sample gigs (auth)
     /api/connectors              source list + per-account config
     /api/connectors/{id}         save enabled/settings
@@ -49,7 +50,7 @@ POLL_FLOOR_MIN = 5
 
 
 # --------------------------------------------------------------------- state
-def job_to_dict(j: db.Job) -> dict:
+def job_to_dict(j: db.Job, variants: dict[int, list[dict]] | None = None) -> dict:
     b = j.breakdown
     body = (j.body or "").strip()
     if len(body) > _MAX_PREVIEW:
@@ -75,6 +76,8 @@ def job_to_dict(j: db.Job) -> dict:
         "sniped_at": j.sniped_at,
         "snipe_method": j.snipe_method,
         "snipe_note": j.snipe_note,
+        "sent_variant": j.sent_variant,
+        "variants": (variants or {}).get(j.id, []),
         "intel": intel.intel_for(j),
     }
 
@@ -84,13 +87,14 @@ def build_state(user_id: int | None = None) -> dict:
     db.ensure_db()
     jobs = db.all_jobs(limit=300, user_id=user_id)
     demo = bool(jobs) and all(j.source == "demo" for j in jobs)
+    variants = db.all_variants()
     return {
         "stats": db.stats(user_id),
         "calibration": db.calibration(user_id),
         "demo": demo,
         "snipe": db.snipe_stats(user_id),
         "linked": {"freelancer": bool(_fl_tokens(user_id))},
-        "jobs": [job_to_dict(j) for j in jobs],
+        "jobs": [job_to_dict(j, variants) for j in jobs],
     }
 
 
@@ -290,15 +294,25 @@ class OutcomeBody(BaseModel):
     outcome: str | None = None
 
 
-class ConnectorBody(BaseModel):
-    enabled: bool | None = None
-    settings: dict | None = None
+class VariantBody(BaseModel):
+    label: str
+    text: str
+
+
+class SnipeConfirmBody(BaseModel):
+    variant: str | None = None
 
 
 class SnipeBody(BaseModel):
     amount: float | None = None
     period: int = 7
     text: str | None = None
+    variant: str | None = None
+
+
+class ConnectorBody(BaseModel):
+    enabled: bool | None = None
+    settings: dict | None = None
 
 
 def create_app(*, start_poller: bool = False) -> FastAPI:
@@ -487,6 +501,8 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             "amount": job.budget_max or job.budget_min or 0,
             "period": 7,
             "text": _snipe_text(job),
+            "variants": db.variants_for(job.id),
+            "sent_variant": None,
         }
 
     @app.get("/api/jobs/{job_id}/snipe-plan")
@@ -521,6 +537,13 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         if amount <= 0:
             raise HTTPException(400, "set a bid amount before firing")
         text = body.text if body.text is not None else _snipe_text(job)
+        variant = (body.variant or "A").strip().upper() or "A"
+        if variant != "A":
+            stored = {v["label"]: v["text"] for v in db.variants_for(job.id)}
+            if variant not in stored:
+                raise HTTPException(400, f"variant {variant} does not exist for this gig")
+            if text != stored[variant]:
+                db.save_variant(job.id, variant, text)  # dialog edits write back
         try:
             result, updated = _fla.place_bid(
                 settings, pid, amount=amount, period=max(1, int(body.period)), description=text
@@ -529,7 +552,10 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             raise HTTPException(502, str(exc)) from exc
         if updated:
             db.save_connector_cfg(user["id"], "freelancer_account", settings=updated)
-        db.mark_sniped(job.id, "freelancer-api", f"bid #{result.get('id')}")
+        db.mark_sniped(
+            job.id, "freelancer-api", f"bid #{result.get('id')}",
+            None if variant == "A" else variant,
+        )
         return JSONResponse(
             {
                 "ok": True,
@@ -542,7 +568,8 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         )
 
     @app.post("/api/jobs/{job_id}/snipe-confirm")
-    def snipe_confirm(job_id: int, request: Request) -> dict:
+    def snipe_confirm(job_id: int, request: Request,
+                      body: SnipeConfirmBody | None = None) -> dict:
         """Kit snipe: the user pasted the proposal and sent it — record the shot."""
         user = _user(request)
         job = _own_job(user, job_id)
@@ -550,8 +577,31 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             raise HTTPException(
                 400, f"this gig is '{job.status}' — only pending/approved gigs can be sniped"
             )
-        db.mark_sniped(job.id, "kit", "send confirmed from snipe dialog")
-        return {"ok": True, "mode": "kit", "status": "sent"}
+        variant = ((body or SnipeConfirmBody()).variant or "A").strip().upper() or "A"
+        if variant != "A" and variant not in {v["label"] for v in db.variants_for(job.id)}:
+            raise HTTPException(400, f"variant {variant} does not exist for this gig")
+        db.mark_sniped(
+            job.id, "kit", "send confirmed from snipe dialog",
+            None if variant == "A" else variant,
+        )
+        return {"ok": True, "mode": "kit", "status": "sent", "variant": variant}
+
+    # ------------------------------------------------- proposal A/B variants
+    @app.get("/api/jobs/{job_id}/variants")
+    def list_variants(job_id: int, request: Request) -> dict:
+        user = _user(request)
+        _own_job(user, job_id)
+        return {"ok": True, "variants": db.variants_for(job_id)}
+
+    @app.post("/api/jobs/{job_id}/variants")
+    def put_variant(job_id: int, body: VariantBody, request: Request) -> dict:
+        user = _user(request)
+        _own_job(user, job_id)
+        try:
+            db.save_variant(job_id, body.label, body.text)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "variants": db.variants_for(job_id)}
 
     # ---------------------------------------------------------- connectors
     @app.get("/api/connectors")

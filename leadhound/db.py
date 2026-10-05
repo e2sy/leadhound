@@ -34,6 +34,7 @@ class Job:
     sniped_at: str | None = None
     snipe_method: str | None = None
     snipe_note: str | None = None
+    sent_variant: str | None = None
     user_id: int | None = None
 
     @property
@@ -87,6 +88,18 @@ def ensure_db() -> None:
     )
     _migrate(c)
     _ensure_accounts(c)
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS draft_variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created TEXT DEFAULT (datetime('now')),
+            UNIQUE(job_id, label)
+        )
+        """
+    )
     c.commit()
     c.close()
 
@@ -106,6 +119,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN snipe_method TEXT")
     if "snipe_note" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN snipe_note TEXT")
+    if "sent_variant" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN sent_variant TEXT")
 
 
 def _ensure_accounts(c: sqlite3.Connection) -> None:
@@ -403,18 +418,73 @@ def set_status(job_id: int, status: str) -> None:
     c.close()
 
 
-def mark_sniped(job_id: int, method: str, note: str = "") -> None:
+def mark_sniped(job_id: int, method: str, note: str = "", variant: str | None = None) -> None:
     """The shot was fired: status -> sent with an honest audit trail.
 
     method is 'freelancer-api' (a real bid was placed) or 'kit' (proposal
     copied + gig opened, user confirmed the send). note carries the platform
-    bid id or the confirmation context.
+    bid id or the confirmation context. variant records WHICH proposal went
+    out (None/'A' = the job's main draft, 'B' = an A/B variant) — the
+    learning signal for the proposal duel.
     """
     c = _conn()
+    if variant:
+        c.execute(
+            "UPDATE jobs SET status = 'sent', sniped_at = datetime('now'), "
+            "snipe_method = ?, snipe_note = ?, sent_variant = ? WHERE id = ?",
+            (method, note, variant, job_id),
+        )
+    else:
+        c.execute(
+            "UPDATE jobs SET status = 'sent', sniped_at = datetime('now'), "
+            "snipe_method = ?, snipe_note = ? WHERE id = ?",
+            (method, note, job_id),
+        )
+    c.commit()
+    c.close()
+
+
+# ------------------------------------------------------------------- variants
+def variants_for(job_id: int) -> list[dict]:
+    """A/B variants stored for a job (label 'B' and beyond)."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT label, text, created FROM draft_variants "
+        "WHERE job_id = ? ORDER BY label",
+        (job_id,),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def all_variants() -> dict[int, list[dict]]:
+    """Every variant row, grouped by job id — one query for the board feed."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT job_id, label, text, created FROM draft_variants ORDER BY label"
+    ).fetchall()
+    c.close()
+    out: dict[int, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["job_id"], []).append(
+            {"label": r["label"], "text": r["text"], "created": r["created"]}
+        )
+    return out
+
+
+def save_variant(job_id: int, label: str, text: str) -> None:
+    """Upsert one proposal variant (label 'A' is the job's main draft —
+    it lives on the job row itself, so only B+ belongs here)."""
+    label = label.strip().upper()
+    if not label or len(label) > 2 or not label.isalpha():
+        raise ValueError("variant label must be 1-2 letters")
+    if label == "A":
+        raise ValueError("A is the main draft — save variants as B, C, …")
+    c = _conn()
     c.execute(
-        "UPDATE jobs SET status = 'sent', sniped_at = datetime('now'), "
-        "snipe_method = ?, snipe_note = ? WHERE id = ?",
-        (method, note, job_id),
+        "INSERT INTO draft_variants (job_id, label, text) VALUES (?, ?, ?) "
+        "ON CONFLICT(job_id, label) DO UPDATE SET text = excluded.text",
+        (job_id, label, text),
     )
     c.commit()
     c.close()
@@ -615,6 +685,23 @@ def funnel_stats(user_id: int | None = None) -> dict:
             "wins": r["wins"] or 0,
         }
         for r in method_rows
+    }
+
+    variant_rows = c.execute(
+        "SELECT COALESCE(sent_variant, 'A') AS v, COUNT(*) AS n, "
+        "SUM(CASE WHEN outcome IN ('replied','interview','won') THEN 1 ELSE 0 END) AS replies, "
+        "SUM(CASE WHEN outcome = 'won' THEN 1 ELSE 0 END) AS wins "
+        "FROM jobs WHERE status = 'sent' "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) GROUP BY v",
+        (flag, uid),
+    ).fetchall()
+    out["by_variant"] = {
+        (r["v"] or "A"): {
+            "sent": r["n"],
+            "replies": r["replies"] or 0,
+            "wins": r["wins"] or 0,
+        }
+        for r in variant_rows
     }
     c.close()
     return out

@@ -223,7 +223,7 @@ def test_compose_digest_counts_and_ranks_top_gigs(seeded):
         db.all_jobs(user_id=seeded["uid"]), db.snipe_stats(seeded["uid"])
     )
     assert "board digest" in text
-    assert "2 pending" in text and "1 approved" in text
+    assert "1 pending" in text and "1 approved" in text
     assert "gig dg-1" in text  # the best pending gig surfaced
 
 

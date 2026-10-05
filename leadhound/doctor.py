@@ -14,6 +14,7 @@ import requests
 from rich.console import Console
 from rich.table import Table
 
+from . import __version__
 from .config import (
     db_path,
     home,
@@ -172,6 +173,41 @@ def _check_feeds(sources: list[str]) -> list[Check]:
     return out
 
 
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """'0.9.1' -> (0, 9, 1) — junk-tolerant, never raises."""
+    parts = []
+    for piece in (v or "").split("."):
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) or (0,)
+
+
+def _check_update() -> Check:
+    """Am I behind the latest tagged release? Purely informational — a
+    warning, never a hard fail; offline mode skips it entirely."""
+    try:
+        r = requests.get(
+            "https://api.github.com/repos/e2sy/leadhound/releases/latest",
+            timeout=5,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+    except requests.RequestException as exc:
+        return Check("version", None, f"update check skipped ({type(exc).__name__})")
+    if r.status_code == 404:
+        return Check("version", True, f"v{__version__} (no published releases yet)")
+    if r.status_code != 200:
+        return Check("version", None, f"update check skipped (HTTP {r.status_code})")
+    latest = (r.json().get("tag_name") or "").lstrip("v")
+    if not latest:
+        return Check("version", None, "could not read the latest release tag")
+    if _version_tuple(latest) > _version_tuple(__version__):
+        return Check(
+            "version", None, f"v{__version__} — v{latest} is available",
+            "upgrade: pip install -U leadhound  (or git pull if you run from source)",
+        )
+    return Check("version", True, f"v{__version__} — up to date")
+
+
 def run_checks(offline: bool = False) -> list[Check]:
     if not is_initialized():
         return [Check("setup", False, "not initialized", "run: leadhound init")]
@@ -185,6 +221,7 @@ def run_checks(offline: bool = False) -> list[Check]:
             checks += _check_feeds(w.sources)
         except Exception:
             checks.append(Check("feeds", None, "skipped — config unparsable"))
+        checks.append(_check_update())
     return checks
 
 

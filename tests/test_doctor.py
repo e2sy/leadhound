@@ -1,6 +1,8 @@
 """Doctor tests — offline checks only, no network."""
 
-from leadhound import config
+import requests
+
+from leadhound import config, doctor
 from leadhound.doctor import run_checks
 
 
@@ -66,3 +68,48 @@ class TestDoctor:
         checks = run_checks(offline=True)
         assert not any(c.name == "llm" for c in checks)
         assert not any(c.name == "telegram" for c in checks)
+
+
+# ------------------------------------------------------------------ update check
+class FakeResp:
+    def __init__(self, status=200, tag="v0.9.1"):
+        self.status_code = status
+        self._tag = tag
+
+    def json(self):
+        return {"tag_name": self._tag}
+
+
+def test_update_check_outdated(monkeypatch):
+    monkeypatch.setattr("leadhound.doctor.requests.get",
+                        lambda *a, **k: FakeResp(tag="v99.0.0"))
+    c = doctor._check_update()
+    assert c.ok is None and "v99.0.0 is available" in c.detail
+
+
+def test_update_check_up_to_date(monkeypatch):
+    from leadhound import __version__
+    monkeypatch.setattr("leadhound.doctor.requests.get",
+                        lambda *a, **k: FakeResp(tag=f"v{__version__}"))
+    assert doctor._check_update().ok is True
+
+
+def test_update_check_no_releases_yet(monkeypatch):
+    monkeypatch.setattr("leadhound.doctor.requests.get",
+                        lambda *a, **k: FakeResp(status=404))
+    assert doctor._check_update().ok is True
+
+
+def test_update_check_network_down_is_only_a_warning(monkeypatch):
+    def boom(*a, **k):
+        raise requests.exceptions.ConnectionError("offline")
+
+    monkeypatch.setattr("leadhound.doctor.requests.get", boom)
+    c = doctor._check_update()
+    assert c.ok is None and "skipped" in c.detail
+
+
+def test_offline_mode_skips_update_check():
+    config.init_files()
+    names = [c.name for c in doctor.run_checks(offline=True)]
+    assert "version" not in names

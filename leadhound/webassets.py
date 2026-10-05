@@ -196,6 +196,11 @@ PAGE = r"""<!DOCTYPE html>
   .connacts{display:flex; gap:6px; margin-top:9px; flex-wrap:wrap; align-items:center}
   .cstat{margin-top:8px; font-size:11.5px; color:var(--dim)}
   .cstat.err{color:var(--red)}
+  .rule{display:flex; align-items:center; gap:8px; padding:7px 0; border-top:1px dashed var(--line); font-size:12.5px}
+  .rule .rname{font-weight:600; white-space:nowrap}
+  .rule .rdesc{color:var(--dim); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .rgrid{display:grid; grid-template-columns:2fr 1fr 1fr; gap:6px}
+  .rgrid input,.rgrid select{width:100%; font-size:12px}
 
   #toasts{position:fixed; right:14px; bottom:14px; display:flex; flex-direction:column; gap:8px; z-index:50}
   .toast{background:var(--panel); border:1px solid var(--green); color:var(--txt);
@@ -376,6 +381,38 @@ PAGE = r"""<!DOCTYPE html>
       <button id="tgListen" onclick="toggleListen()">🎧 arm listener</button>
     </div>
     <div class="cstat" id="tgStat">no bot token yet</div>
+  </div>
+  <div id="rulesCard" class="conn">
+    <div class="connhead">
+      <b>⚡ auto-snipe rules</b>
+      <span class="badge off" id="rulesBadge">off</span>
+    </div>
+    <div class="blurb">when a fresh gig clears a rule's score bar (and any caps you set),
+      leadhound auto-approves it and tags it ⚡ auto on the board — ready to fire from the
+      dialog, a keyboard tap, or /snipe in your pocket. <b>real bids still need a human
+      click. always.</b></div>
+    <div class="fields">
+      <div class="rgrid">
+        <div><label for="rName">rule name</label>
+          <input id="rName" type="text" placeholder="react dashboards ≥ 90" autocomplete="off"></div>
+        <div><label for="rScore">min score (60-99)</label>
+          <input id="rScore" type="number" min="60" max="99" value="90"></div>
+        <div><label for="rSource">source</label>
+          <select id="rSource"><option value="">all sources</option></select></div>
+      </div>
+      <div class="rgrid">
+        <div><label for="rKeys">keywords — any of these, comma separated (optional)</label>
+          <input id="rKeys" type="text" placeholder="react, dashboard, stripe" autocomplete="off"></div>
+        <div><label for="rHourly">max $/hr (optional)</label>
+          <input id="rHourly" type="number" min="1" placeholder="—"></div>
+        <div><label for="rFixed">max fixed $ (optional)</label>
+          <input id="rFixed" type="number" min="1" placeholder="—"></div>
+      </div>
+    </div>
+    <div class="connacts">
+      <button class="primary" onclick="addRule()">⚡ arm rule</button>
+    </div>
+    <div id="rulesList" style="margin-top:6px">no rules yet</div>
   </div>
   <div class="afoot">credentials live in your local SQLite (secrets masked in the UI) — nothing is sent
     anywhere except the sites you enable. the radar re-polls enabled sources every few minutes while the server runs.
@@ -796,7 +833,7 @@ window.showView = v => {
     const el = $(sel);
     if(el) el.style.display = v === "board" ? "" : "none";
   });
-  if(v === "accounts"){ loadConnectors(); loadNotify(); }
+  if(v === "accounts"){ loadConnectors(); loadNotify(); loadRules(); }
   else if(v === "stats") loadStats();
   else updateSteps();
 };
@@ -1102,6 +1139,58 @@ window.toggleListen = async () => {
   }catch{ toast("network error", true); }
 };
 
+/* ------------------------------------------------- auto-snipe rules */
+async function loadRules(){
+  try{
+    const d = await (await fetch("/api/rules")).json();
+    if(!d.ok) return;
+    const rules = d.rules || [];
+    const badge = $("#rulesBadge");
+    const armed = rules.filter(r => r.enabled).length;
+    badge.textContent = armed ? (armed + " armed") : "off";
+    badge.className = "badge " + (armed ? "ok" : "off");
+    const src = $("#rSource");
+    if(src && src.options.length <= 1){
+      (S.connectors || []).forEach(c => {
+        const o = document.createElement("option");
+        o.value = c.id; o.textContent = c.label;
+        src.appendChild(o);
+      });
+    }
+    $("#rulesList").innerHTML = rules.length ? rules.map(r => `
+      <div class="rule">
+        <input type="checkbox" ${r.enabled ? "checked" : ""} title="${r.enabled ? "armed" : "disarmed"}"
+               onchange="toggleRule(${r.id}, this.checked)">
+        <span class="rname">${esc(r.name)}</span>
+        <span class="rdesc">score ≥ ${r.min_score}${r.keywords ? " · “" + esc(r.keywords) + "”" : ""}${r.source ? " · " + esc(r.source) : ""}${r.max_hourly ? " · ≤$" + r.max_hourly + "/hr" : ""}${r.max_fixed ? " · ≤$" + r.max_fixed + " fixed" : ""}</span>
+        <button class="danger" onclick="delRule(${r.id})" title="delete rule">✕</button>
+      </div>`).join("")
+      : `<div class="hint" style="margin-top:4px">no rules yet — hot gigs sit in pending until you look.</div>`;
+  }catch{ /* dashboard stays usable offline */ }
+}
+window.addRule = async () => {
+  const name = $("#rName").value.trim();
+  if(!name){ toast("give the rule a name first", true); return; }
+  const body = {
+    name,
+    min_score: +$("#rScore").value || 90,
+    keywords: $("#rKeys").value.trim(),
+    source: $("#rSource").value,
+  };
+  if(+$("#rHourly").value) body.max_hourly = +$("#rHourly").value;
+  if(+$("#rFixed").value) body.max_fixed = +$("#rFixed").value;
+  const d = await post("/api/rules", body, "rule armed ⚡ hot gigs auto-approve from now on");
+  if(d){ $("#rName").value = ""; $("#rKeys").value = ""; $("#rHourly").value = ""; $("#rFixed").value = ""; loadRules(); }
+};
+window.toggleRule = (id, on) => post(`/api/rules/${id}/enabled`, {enabled: !!on}).then(d => { if(d) loadRules(); });
+window.delRule = async id => {
+  try{
+    const r = await fetch(`/api/rules/${id}`, {method: "DELETE"});
+    toast(r.ok ? "rule removed" : "could not remove rule", !r.ok);
+  }catch{ toast("network error", true); }
+  loadRules();
+};
+
 /* ------------------------------------------------- board */
 function toggleAuto(){
   S.auto = !S.auto;
@@ -1151,6 +1240,8 @@ function card(j){
     ? `<span class="schip" title="${esc(j.snipe_note || "")}">🔥 live-fire bid${vtag}</span>`
     : j.snipe_method === "kit"
       ? `<span class="schip" title="${esc(j.snipe_note || "")}">🎯 kit${vtag}</span>` : "";
+  const abadge = j.auto_rule
+    ? `<span class="schip" style="border-color:var(--green);color:var(--green)" title="auto-approved by rule: ${esc(j.auto_rule)}">⚡ auto</span>` : "";
   const open = S.editing === j.id;
   const hasB = (j.variants || []).some(v => v.label === "B");
 
@@ -1179,7 +1270,7 @@ function card(j){
     <div class="row">
       <div class="ring" style="border-color:${ringColor(j.score)};color:${ringColor(j.score)}">${j.score}</div>
       <div style="min-width:0">
-        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}</div>
+        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}</div>
         <div class="meta">
           <span class="chip blue">${esc(j.source)}</span>
           ${m ? `<span class="chip amber">$${esc(m).replace("$","")}</span>` : ""}

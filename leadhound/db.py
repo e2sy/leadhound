@@ -36,6 +36,7 @@ class Job:
     snipe_method: str | None = None
     snipe_note: str | None = None
     sent_variant: str | None = None
+    auto_rule: str | None = None
     user_id: int | None = None
 
     @property
@@ -122,6 +123,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN snipe_note TEXT")
     if "sent_variant" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN sent_variant TEXT")
+    if "auto_rule" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN auto_rule TEXT")
 
 
 def _ensure_accounts(c: sqlite3.Connection) -> None:
@@ -171,6 +174,22 @@ def _ensure_accounts(c: sqlite3.Connection) -> None:
             listen_enabled INTEGER DEFAULT 0,
             push_min_score INTEGER DEFAULT 70,
             updated_at TEXT
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS snipe_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            min_score INTEGER DEFAULT 90,
+            keywords TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            max_hourly REAL,
+            max_fixed REAL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
         )
         """
     )
@@ -492,6 +511,121 @@ def save_notify_cfg(
     ).fetchone()
     c.close()
     return dict(row) if row else {}
+
+
+# ---------------------------------------------------------------- snipe rules
+def add_snipe_rule(
+    user_id: int,
+    name: str,
+    min_score: int = 90,
+    keywords: str = "",
+    source: str = "",
+    max_hourly: float | None = None,
+    max_fixed: float | None = None,
+) -> dict:
+    """Arm an auto-snipe rule. Guardrails: min_score is clamped to 60..99 —
+    a rule can auto-APPROVE a gig, but firing a real bid always needs a human
+    click, so nothing here ever places one."""
+    c = _conn()
+    cur = c.execute(
+        """
+        INSERT INTO snipe_rules (user_id, name, min_score, keywords, source,
+                                 max_hourly, max_fixed)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            name.strip()[:80],
+            max(60, min(99, int(min_score))),
+            keywords.strip().lower()[:300],
+            source.strip()[:40],
+            float(max_hourly) if max_hourly else None,
+            float(max_fixed) if max_fixed else None,
+        ),
+    )
+    rid = cur.lastrowid
+    c.commit()
+    c.close()
+    return snipe_rule(user_id, rid)
+
+
+def snipe_rule(user_id: int, rule_id: int) -> dict | None:
+    c = _conn()
+    row = c.execute(
+        "SELECT * FROM snipe_rules WHERE id = ? AND user_id = ?",
+        (rule_id, user_id),
+    ).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def snipe_rules_for(user_id: int) -> list[dict]:
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM snipe_rules WHERE user_id = ? ORDER BY id DESC",
+        (user_id,),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def delete_snipe_rule(user_id: int, rule_id: int) -> bool:
+    c = _conn()
+    cur = c.execute(
+        "DELETE FROM snipe_rules WHERE id = ? AND user_id = ?", (rule_id, user_id)
+    )
+    c.commit()
+    c.close()
+    return cur.rowcount > 0
+
+
+def set_snipe_rule_enabled(user_id: int, rule_id: int, enabled: bool) -> bool:
+    c = _conn()
+    cur = c.execute(
+        "UPDATE snipe_rules SET enabled = ? WHERE id = ? AND user_id = ?",
+        (1 if enabled else 0, rule_id, user_id),
+    )
+    c.commit()
+    c.close()
+    return cur.rowcount > 0
+
+
+def match_snipe_rules(user_id: int, score: int, job: dict) -> list[dict]:
+    """Rules the gig currently satisfies: enabled, score bar cleared, source
+    matches, ANY keyword hits title+body, and the budget sits under the caps.
+    No caps set on a rule = that dimension is unfiltered."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT * FROM snipe_rules WHERE user_id = ? AND enabled = 1 AND min_score <= ?",
+        (user_id, int(score)),
+    ).fetchall()
+    c.close()
+    haystack = f"{job.get('title', '')} {job.get('body', '')}".lower()
+    source = (job.get("source") or "").lower()
+    hourly = job.get("hourly")
+    fixed = job.get("budget_max") if job.get("budget_max") else job.get("budget_min")
+    hits: list[dict] = []
+    for r in rows:
+        if r["source"] and r["source"].lower() != source:
+            continue
+        kws = [k.strip() for k in (r["keywords"] or "").split(",") if k.strip()]
+        if kws and not any(k in haystack for k in kws):
+            continue
+        if r["max_hourly"] is not None and hourly is not None and hourly > r["max_hourly"]:
+            continue
+        if r["max_fixed"] is not None and fixed is not None and fixed > r["max_fixed"]:
+            continue
+        hits.append(dict(r))
+    return hits
+
+
+def mark_auto_armed(job_id: int, rule_name: str) -> None:
+    """Audit trail: this gig was auto-approved by rule <name> — the human
+    still pulls the trigger."""
+    c = _conn()
+    c.execute("UPDATE jobs SET auto_rule = ? WHERE id = ?", (rule_name[:80], job_id))
+    c.commit()
+    c.close()
 
 
 def upsert_job(

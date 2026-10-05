@@ -27,6 +27,7 @@ class Ingested:
     mode: str
     is_new: bool
     notified: bool = field(default=False)
+    auto_rule: str | None = field(default=None)
 
 
 def ingest_jobs(
@@ -65,6 +66,12 @@ def ingest_jobs(
             rid=rid, job=job, score=score, breakdown=breakdown,
             draft=draft, mode=mode, is_new=is_new,
         )
+        if user_id and is_new:
+            hits = db.match_snipe_rules(user_id, score, job)
+            if hits:
+                db.set_status(rid, "approved")
+                db.mark_auto_armed(rid, hits[0]["name"])
+                ing.auto_rule = hits[0]["name"]
         tg_wants = tg_on and score >= (tg_min_score if tg_min_score > 0 else min_score)
         if is_new and draft and (tg_wants or wh_on or em_on):
             stored = db.get_job(rid)

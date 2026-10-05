@@ -103,6 +103,7 @@ def job_to_dict(j: db.Job, variants: dict[int, list[dict]] | None = None) -> dic
         "snipe_method": j.snipe_method,
         "snipe_note": j.snipe_note,
         "sent_variant": j.sent_variant,
+        "auto_rule": j.auto_rule,
         "variants": (variants or {}).get(j.id, []),
         "intel": intel.intel_for(j),
     }
@@ -378,6 +379,19 @@ class CadenceBody(BaseModel):
     minutes: int
 
 
+class RuleBody(BaseModel):
+    name: str
+    min_score: int = 90
+    keywords: str = ""
+    source: str = ""
+    max_hourly: float | None = None
+    max_fixed: float | None = None
+
+
+class RuleToggleBody(BaseModel):
+    enabled: bool = True
+
+
 class ListenBody(BaseModel):
     listen: bool
 
@@ -466,6 +480,45 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
     @app.get("/icon.svg")
     def icon() -> Response:
         return Response(ICON_SVG, media_type="image/svg+xml")
+
+    # ------------------------------------------------------------- snipe rules
+    @app.get("/api/rules")
+    def rules_list(request: Request) -> dict:
+        user = _user(request)
+        return {"ok": True, "rules": db.snipe_rules_for(user["id"])}
+
+    @app.post("/api/rules")
+    def rules_create(request: Request, body: RuleBody) -> dict:
+        user = _user(request)
+        if not body.name.strip():
+            raise HTTPException(422, "give the rule a name")
+        try:
+            rule = db.add_snipe_rule(
+                user["id"],
+                body.name,
+                min_score=body.min_score,
+                keywords=body.keywords,
+                source=body.source,
+                max_hourly=body.max_hourly,
+                max_fixed=body.max_fixed,
+            )
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, f"bad rule: {exc}") from exc
+        return {"ok": True, "rule": rule}
+
+    @app.delete("/api/rules/{rule_id}")
+    def rules_delete(request: Request, rule_id: int) -> dict:
+        user = _user(request)
+        if not db.delete_snipe_rule(user["id"], rule_id):
+            raise HTTPException(404, "no such rule")
+        return {"ok": True}
+
+    @app.post("/api/rules/{rule_id}/enabled")
+    def rules_toggle(request: Request, rule_id: int, body: RuleToggleBody) -> dict:
+        user = _user(request)
+        if not db.set_snipe_rule_enabled(user["id"], rule_id, body.enabled):
+            raise HTTPException(404, "no such rule")
+        return {"ok": True}
 
     @app.get("/api/health")
     def health() -> dict:

@@ -337,3 +337,22 @@ class TestBuildState:
         assert set(st) == {"stats", "calibration", "jobs", "demo", "snipe", "linked"}
         assert json.dumps(st["stats"])  # serializable
         assert st["jobs"][0]["draft"] == "Draft for Hot gig."
+
+
+class TestSavedViews:
+    """Saved filter views — client-side, but the shell must ship them."""
+
+    def test_filter_bar_present(self, authed):
+        html = authed.get("/").text
+        assert 'id="filterbar"' in html
+        assert 'id="fSource"' in html and 'id="fScore"' in html
+
+    def test_saved_views_wired(self, authed):
+        html = authed.get("/").text
+        assert "lh_views" in html
+        assert "saveView" in html and "applyView" in html and "delView" in html
+
+    def test_filters_extend_search_not_replace_it(self, authed):
+        html = authed.get("/").text
+        assert "S.source) jobs" in html
+        assert "S.minScore) jobs" in html

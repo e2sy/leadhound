@@ -202,6 +202,16 @@ PAGE = r"""<!DOCTYPE html>
   .rgrid{display:grid; grid-template-columns:2fr 1fr 1fr; gap:6px}
   .rgrid input,.rgrid select{width:100%; font-size:12px}
 
+  #filterbar{display:flex; gap:6px; align-items:center; padding:6px 16px;
+             border-bottom:1px solid var(--line); font-size:12px; color:var(--dim); flex-wrap:wrap}
+  #filterbar .flabel{text-transform:uppercase; letter-spacing:1px; font-size:10.5px}
+  #filterbar select{padding:3px 6px; font-size:12px}
+  .viewchip{display:inline-flex; align-items:center; gap:4px; border:1px solid var(--line);
+            border-radius:999px; padding:1px 8px; background:var(--panel2); cursor:pointer; white-space:nowrap}
+  .viewchip:hover{border-color:var(--blue); color:var(--blue)}
+  .viewchip .x{color:var(--dim)}
+  .viewchip .x:hover{color:var(--red)}
+
   #toasts{position:fixed; right:14px; bottom:14px; display:flex; flex-direction:column; gap:8px; z-index:50}
   .toast{background:var(--panel); border:1px solid var(--green); color:var(--txt);
          border-radius:10px; padding:8px 14px; font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,.5)}
@@ -322,6 +332,19 @@ PAGE = r"""<!DOCTYPE html>
     </div>
   </header>
   <div class="hintbar" id="hintbar">loading…</div>
+  <div id="filterbar">
+    <span class="flabel">filter</span>
+    <select id="fSource" onchange="S.source=this.value; render()"><option value="">all sources</option></select>
+    <select id="fScore" onchange="S.minScore=+this.value||0; render()">
+      <option value="0">any score</option>
+      <option value="60">score ≥ 60</option>
+      <option value="70">score ≥ 70</option>
+      <option value="80">score ≥ 80</option>
+      <option value="90">score ≥ 90</option>
+    </select>
+    <button onclick="saveView()" title="save this filter (source + score bar + search) as a one-click view">💾 save view</button>
+    <span id="savedViews"></span>
+  </div>
   <div id="hero" hidden>
     <div class="wolf">🐺</div>
     <h1>Connect your first job source</h1>
@@ -491,7 +514,7 @@ const COLS = [
   {key:"sent",     label:"🔥 Sniped"},
   {key:"rejected", label:"🗑 Rejected"},
 ];
-const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
+const S = {jobs:[], cal:{}, q:"", source:"", minScore:0, auto:true, editing:null, draftVal:"", timer:null,
            demo:false, user:null, connectors:[], authMode:"login", view:"board",
            snipePlan:null, snipe:{}, linked:{}, stats:null, draftSide:"A", snipeVariant:"A",
            sel:null, selOrder:[], selScroll:false, knownIds:null};
@@ -853,7 +876,7 @@ window.showView = v => {
   $("#tabAccts").classList.toggle("sel", v === "accounts");
   $("#accountsView").hidden = v !== "accounts";
   $("#statsView").hidden = v !== "stats";
-  ["#hero", "#board", "#hintbar"].forEach(sel => {
+  ["#hero", "#board", "#hintbar", "#filterbar"].forEach(sel => {
     const el = $(sel);
     if(el) el.style.display = v === "board" ? "" : "none";
   });
@@ -1348,12 +1371,65 @@ function filteredJobs(){
   let jobs = S.jobs;
   if(q) jobs = jobs.filter(j =>
     (j.title + " " + j.body + " " + j.source + " " + (j.tags||[]).join(" ")).toLowerCase().includes(q));
+  if(S.source) jobs = jobs.filter(j => j.source === S.source);
+  if(S.minScore) jobs = jobs.filter(j => j.score >= S.minScore);
   return jobs;
 }
+
+/* ------------------------------------------------- saved views */
+function renderFilterBar(){
+  const sel = $("#fSource");
+  if(sel){
+    const present = [...new Set(S.jobs.map(j => j.source))].sort();
+    const current = S.source;
+    if(sel.options.length !== present.length + 1 ||
+       [...sel.options].some((o, i) => i > 0 && o.value !== present[i - 1])){
+      sel.innerHTML = `<option value="">all sources</option>` +
+        present.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    }
+    sel.value = current;
+  }
+  renderSavedViews();
+}
+function views(){
+  try{ return JSON.parse(localStorage.getItem("lh_views") || "[]"); }
+  catch(e){ return []; }
+}
+function renderSavedViews(){
+  const box = $("#savedViews");
+  if(!box) return;
+  const list = views();
+  box.innerHTML = list.map(v =>
+    `<span class="viewchip" onclick="applyView('${esc(v.name)}')" title="source: ${esc(v.source || "all")} · score: ${esc(String(v.minScore || 0))} · q: ${esc(v.q || "")}">${esc(v.name)}<span class="x" onclick="delView('${esc(v.name)}'); event.stopPropagation()">✕</span></span>`
+  ).join("");
+}
+window.saveView = () => {
+  const name = prompt("name this view (e.g. hot react gigs)");
+  if(!name) return;
+  const list = views().filter(v => v.name !== name.trim());
+  list.push({name: name.trim().slice(0, 30), q: S.q || "", source: S.source || "", minScore: S.minScore || 0});
+  localStorage.setItem("lh_views", JSON.stringify(list.slice(-8)));
+  renderSavedViews();
+  toast("view saved — one click from the filter bar ✓");
+};
+window.applyView = name => {
+  const v = views().find(x => x.name === name);
+  if(!v) return;
+  S.q = v.q || ""; S.source = v.source || ""; S.minScore = +v.minScore || 0;
+  $("#q").value = S.q;
+  $("#fSource").value = S.source;
+  $("#fScore").value = String(S.minScore);
+  render();
+};
+window.delView = name => {
+  localStorage.setItem("lh_views", JSON.stringify(views().filter(v => v.name !== name)));
+  renderSavedViews();
+};
 
 function render(){
   chips();
   updateSteps();
+  renderFilterBar();
   const jobs = filteredJobs();
   $("#hero").hidden = S.jobs.length > 0;
   $("#board").style.display = S.jobs.length ? "" : "none";

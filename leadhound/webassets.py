@@ -217,6 +217,17 @@ PAGE = r"""<!DOCTYPE html>
   button.fire:hover{background:#da3633; color:#fff}
   .snote{margin-top:9px; font-size:11px; color:var(--dim)}
   .schip{font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--amber); color:var(--amber)}
+  .card.selk{border-color:var(--blue); box-shadow:0 0 0 1px var(--blue), 0 4px 18px rgba(88,166,255,.18)}
+  #keyHelp{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.62);
+           display:flex; align-items:center; justify-content:center}
+  #keyHelp[hidden]{display:none}
+  .kbox{width:430px; max-width:92vw; background:var(--panel); border:1px solid var(--line);
+        border-radius:14px; padding:18px 20px; box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .kbox h3{font-size:15px; margin-bottom:10px}
+  .krow{display:flex; gap:10px; padding:4px 0; font-size:12.5px; color:var(--dim); align-items:baseline}
+  .krow b{color:var(--txt); width:150px; flex:none}
+  kbd{background:var(--bg); border:1px solid var(--line); border-bottom-width:2px;
+      border-radius:6px; padding:0 6px; font:11.5px ui-monospace,monospace; color:var(--txt)}
   .dtabs{display:flex; gap:4px; margin-top:7px}
   .dtabs button{font-size:11px; padding:3px 9px; border-radius:7px}
   .dtabs button.sel{border-color:var(--blue); color:var(--blue); font-weight:700}
@@ -284,6 +295,7 @@ PAGE = r"""<!DOCTYPE html>
       <button id="tabAccts" onclick="showView('accounts')">🔗 accounts <span id="connN" class="chip blue">0</span></button>
     </nav>
     <button id="autoBtn" class="on" onclick="toggleAuto()" title="auto-refresh every 8s">⟳ auto</button>
+    <button onclick="toggleKeyHelp()" title="keyboard shortcuts (?)">⌨</button>
     <button class="primary" onclick="fetchNow()" title="fetch every enabled source now">⚡ fetch gigs</button>
     <div id="userbox">
       <span class="who" id="whoami"></span>
@@ -331,6 +343,21 @@ PAGE = r"""<!DOCTYPE html>
 </div>
 
 <div id="toasts"></div>
+
+<div id="keyHelp" hidden>
+  <div class="kbox">
+    <h3>⌨ cockpit keys</h3>
+    <div class="krow"><b><kbd>j</kbd> / <kbd>k</kbd></b> next / previous gig (wrap around)</div>
+    <div class="krow"><b><kbd>a</kbd></b> approve the selected gig</div>
+    <div class="krow"><b><kbd>x</kbd> / <kbd>r</kbd></b> reject the selected gig</div>
+    <div class="krow"><b><kbd>s</kbd></b> snipe — open the fire dialog</div>
+    <div class="krow"><b><kbd>o</kbd></b> open the gig page</div>
+    <div class="krow"><b><kbd>c</kbd></b> copy the proposal</div>
+    <div class="krow"><b><kbd>d</kbd></b> edit the draft (A/B tabs too)</div>
+    <div class="krow"><b><kbd>?</kbd></b> this help · <kbd>Esc</kbd> close / clear</div>
+    <div class="krow"><b>note</b> keys pause while you type in any field — the board is mouseless, not hostile.</div>
+  </div>
+</div>
 
 <div id="statsView" hidden>
   <div class="ahead">
@@ -380,7 +407,8 @@ const COLS = [
 ];
 const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
            demo:false, user:null, connectors:[], authMode:"login", view:"board",
-           snipePlan:null, snipe:{}, linked:{}, stats:null, draftSide:"A", snipeVariant:"A"};
+           snipePlan:null, snipe:{}, linked:{}, stats:null, draftSide:"A", snipeVariant:"A",
+           sel:null, selOrder:[], selScroll:false};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -994,7 +1022,7 @@ function card(j){
   else
     acts = `<button onclick="act(${j.id},'pending')">↩ restore</button>`;
 
-  return `<div class="card ${j.score>=80?"hot":(j.score<60?"cold":"")}">
+  return `<div class="card ${j.score>=80?"hot":(j.score<60?"cold":"")} ${S.sel===j.id?"selk":""}">
     <div class="row">
       <div class="ring" style="border-color:${ringColor(j.score)};color:${ringColor(j.score)}">${j.score}</div>
       <div style="min-width:0">
@@ -1030,17 +1058,24 @@ function card(j){
   </div>`;
 }
 
-function render(){
-  chips();
-  updateSteps();
+function filteredJobs(){
   const q = S.q.trim().toLowerCase();
   let jobs = S.jobs;
   if(q) jobs = jobs.filter(j =>
     (j.title + " " + j.body + " " + j.source + " " + (j.tags||[]).join(" ")).toLowerCase().includes(q));
+  return jobs;
+}
+
+function render(){
+  chips();
+  updateSteps();
+  const jobs = filteredJobs();
   $("#hero").hidden = S.jobs.length > 0;
   $("#board").style.display = S.jobs.length ? "" : "none";
+  const order = [];
   $("#board").innerHTML = COLS.map(c => {
     const list = jobs.filter(j => j.status === c.key).sort((a,b) => b.score - a.score || b.id - a.id);
+    list.forEach(j => order.push(j.id));
     return `<div class="col">
       <h2>${c.label} <span class="n">${list.length}</span></h2>
       <div class="cards">${list.length
@@ -1048,11 +1083,74 @@ function render(){
         : `<div class="empty">nothing here</div>`}</div>
     </div>`;
   }).join("");
+  S.selOrder = order;
+  if(S.sel != null && S.selScroll){
+    const el = document.querySelector(".card.selk");
+    if(el) el.scrollIntoView({block:"nearest", behavior:"smooth"});
+    S.selScroll = false;
+  }
   if(S.editing !== null){
     const ta = $("#ta" + S.editing);
     if(ta){ ta.value = S.draftVal; ta.focus(); }
   }
 }
+
+/* ------------------------------------------------- keyboard cockpit */
+const TYPING = () => /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || "");
+
+function kMove(dir){
+  const order = S.selOrder || [];
+  if(!order.length) return;
+  const idx = order.indexOf(S.sel);
+  const next = idx === -1 ? (dir > 0 ? 0 : order.length - 1)
+    : (idx + dir + order.length) % order.length;
+  S.sel = order[next];
+  S.selScroll = true;
+  render();
+}
+
+function kNeighbor(){
+  const order = S.selOrder || [];
+  const idx = order.indexOf(S.sel);
+  return order.length ? order[(idx + 1) % order.length] : null;
+}
+
+window.kAct = (id, status) => {
+  const nid = kNeighbor();          // keep the flow: act, then aim at the next gig
+  if(nid != null){ S.sel = nid; S.selScroll = true; }
+  act(id, status);
+};
+
+window.kOpen = id => {
+  const j = S.jobs.find(x => x.id === id);
+  if(j) window.open(j.url, "_blank", "noopener");
+};
+
+window.toggleKeyHelp = () => { $("#keyHelp").hidden = !$("#keyHelp").hidden; };
+
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape"){
+    if(!$("#keyHelp").hidden){ $("#keyHelp").hidden = true; return; }
+    if(!$("#snipeModal").hidden){ closeSnipe(); return; }
+    if(S.editing !== null){ saveDraft(S.editing, true); render(); return; }
+    if(S.sel != null){ S.sel = null; render(); }
+    return;
+  }
+  if(!$("#snipeModal").hidden || !$("#keyHelp").hidden) return;
+  if(TYPING()) return;
+  if(e.key === "?"){ toggleKeyHelp(); return; }
+  const j = S.jobs.find(x => x.id === S.sel);
+  const k = e.key.toLowerCase();
+  if(k === "j" || e.key === "ArrowDown"){ e.preventDefault(); kMove(1); }
+  else if(k === "k" || e.key === "ArrowUp"){ e.preventDefault(); kMove(-1); }
+  else if(!j){ /* nothing aimed — movement keys only */ }
+  else if(k === "a" && j.status === "pending") kAct(j.id, "approved");
+  else if((k === "x" || k === "r") && (j.status === "pending" || j.status === "approved")) kAct(j.id, "rejected");
+  else if(k === "s" && (j.status === "pending" || j.status === "approved")) openSnipe(j.id);
+  else if(k === "o") kOpen(j.id);
+  else if(k === "c") copyDraft(j.id);
+  else if(k === "d") toggleDraft(j.id);
+});
 
 S.timer = setInterval(tick, 8000);
 boot();

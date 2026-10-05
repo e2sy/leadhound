@@ -84,3 +84,16 @@ def send_test_message(bot_token: str, chat_id: str) -> tuple[bool, str]:
         return False, detail
     except Exception as exc:
         return False, str(exc)
+
+
+def send_plain(bot_token: str, chat_id: str, text: str) -> bool:
+    """No parse_mode, no formatting — error alerts where honesty beats style."""
+    try:
+        r = requests.post(
+            API.format(token=bot_token),
+            json={"chat_id": chat_id, "text": text[:4000]},
+            timeout=20,
+        )
+        return r.ok
+    except Exception:
+        return False

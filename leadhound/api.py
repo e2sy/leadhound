@@ -42,12 +42,37 @@ from .connectors import upwork as _upwork
 from .engine import intel
 from .engine.voice import draft_proposal
 from .notify import telegram as tg
+from .notify import tgbot
 from .pipeline import ingest_jobs
 from .webassets import PAGE
 
 _MAX_PREVIEW = 400
 _MASK = "•••"  # sentinel returned instead of stored secrets
 POLL_FLOOR_MIN = 5
+
+# pocket listeners: user_id -> {bot, thread, stop} — one bot per account
+_listeners: dict[int, dict] = {}
+_LISTENER_CAP = 8
+
+
+def stop_pocket_listener(user_id: int) -> None:
+    """Silence one account's bot. The long-poll thread exits within seconds."""
+    slot = _listeners.pop(user_id, None)
+    if slot:
+        slot["stop"].set()
+
+
+def _alert_connector_error(user_id: int, cid: str, error: str, prev: str) -> None:
+    """Tell the pocket ONCE per new failure — repeats stay silent, the bot
+    never becomes the boy who cried wolf."""
+    if not error or error == prev:
+        return
+    n = db.notify_cfg(user_id)
+    if not (n.get("telegram_enabled") and n.get("telegram_token")
+            and n.get("telegram_chat_id")):
+        return
+    tg.send_plain(n["telegram_token"], n["telegram_chat_id"],
+                  f"⚠️ {cid} radar error: {error[:300]}")
 
 
 # --------------------------------------------------------------------- state
@@ -212,7 +237,9 @@ def run_connector_for(user_id: int, cid: str, *, wait: bool = True) -> dict:
         try:
             jobs, updated = conn.fetch(cfg.get("settings") or {})
         except Exception as exc:
+            prev = str(cfg.get("last_error") or "")
             db.record_connector_run(user_id, cid, "error", str(exc), 0)
+            _alert_connector_error(user_id, cid, str(exc), prev)
             return {"connector": cid, "new": 0, "error": str(exc)}
         watch_cfg, llm_cfg, _, wh_cfg, em_cfg = load_config()
         n = db.notify_cfg(user_id)
@@ -351,6 +378,10 @@ class CadenceBody(BaseModel):
     minutes: int
 
 
+class ListenBody(BaseModel):
+    listen: bool
+
+
 def create_app(*, start_poller: bool = False) -> FastAPI:
     watch_cfg, _, _, _, _ = load_config()
     stop_event = threading.Event()
@@ -368,9 +399,25 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 daemon=True, name="lh-poller",
             )
             thread.start()
+            for uid in db.listen_enabled_rows():
+                cfg = db.notify_cfg(uid)
+                if not (cfg.get("telegram_token") and cfg.get("telegram_chat_id")):
+                    continue
+                stop_evt = threading.Event()
+                try:
+                    _bot, _thread = tgbot.spawn(
+                        user_id=uid, token=cfg["telegram_token"],
+                        chat_id=cfg["telegram_chat_id"], stop=stop_evt,
+                        deps=_listener_deps(uid),
+                    )
+                except Exception:  # noqa: S112 — one dead bot must not block the rest
+                    continue
+                _listeners[uid] = {"bot": _bot, "thread": _thread, "stop": stop_evt}
         yield
         _poller_state["running"] = False
         stop_event.set()
+        for uid in list(_listeners):
+            stop_pocket_listener(uid)
 
     app = FastAPI(title="leadhound", version=__version__, lifespan=lifespan)
 
@@ -426,6 +473,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             "push": {
                 "telegram_enabled": bool(n.get("telegram_enabled")),
                 "listen_enabled": bool(n.get("listen_enabled")),
+                "listener_running": user["id"] in _listeners,
                 "has_token": bool(n.get("telegram_token")),
                 "push_min_score": int(n.get("push_min_score") or 0),
             },
@@ -701,6 +749,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 "telegram_chat_id": cfg.get("telegram_chat_id") or "",
                 "telegram_enabled": bool(cfg.get("telegram_enabled")),
                 "listen_enabled": bool(cfg.get("listen_enabled")),
+                "listening": user["id"] in _listeners,
                 "push_min_score": int(cfg.get("push_min_score") or 70),
             },
         }
@@ -743,6 +792,109 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         settings["poll_minutes"] = minutes
         db.save_connector_cfg(user["id"], body.connector, settings=settings)
         return {"ok": True, "connector": body.connector, "minutes": minutes}
+
+    # -------------------------------------------------------- pocket listener
+    def _listener_deps(user_id: int) -> dict:
+        """The app-side callables the pocket bot is allowed to touch —
+        every one of them user-scoped, so a chat can only ever see its own board."""
+
+        def _own(jid: int) -> db.Job | None:
+            job = db.get_job(jid)
+            return job if job and job.user_id == user_id else None
+
+        def queue(n: int) -> list[str]:
+            rows = [j for j in db.all_jobs(user_id=user_id) if j.status == "pending"]
+            rows.sort(key=lambda j: (-j.score, -j.id))
+            return [tgbot.fmt_queue_line(j) for j in rows[:n]]
+
+        def gig(jid: int) -> str | None:
+            job = _own(jid)
+            return tgbot.fmt_gig_card(job, job.draft or "") if job else None
+
+        def approve(jid: int) -> str:
+            job = _own(jid)
+            if not job:
+                return f"no gig #{jid} on your board"
+            if job.status not in ("pending", "approved"):
+                return f"#{jid} is '{job.status}' — nothing to approve"
+            db.set_status(jid, "approved")
+            return f"#{jid} approved — /snipe when ready"
+
+        def plan(jid: int, amount: float | None) -> dict:
+            job = _own(jid)
+            if not job:
+                return {"ok": False, "detail": f"no gig #{jid} on your board"}
+            if job.status not in ("pending", "approved"):
+                return {"ok": False, "detail": f"gig is '{job.status}'"}
+            settings = _fl_tokens(user_id)
+            if not _project_id_of(job) or not settings:
+                return {
+                    "ok": True, "mode": "kit",
+                    "detail": "no linked Freelancer.com account — "
+                              "the draft + kit link are on the board",
+                }
+            amt = amount if amount and amount > 0 else (job.budget_max or job.budget_min or 0)
+            if amt <= 0:
+                return {"ok": False,
+                        "detail": "gig has no budget — pass one: /snipe " + str(jid) + " 500"}
+            return {"ok": True, "mode": "api", "amount": float(amt),
+                    "detail": job.title[:60]}
+
+        def fire(jid: int, amount: float | None) -> dict:
+            """The real trigger — same plumbing as the dashboard's 🔥 button."""
+            job = _own(jid)
+            if not job or job.status not in ("pending", "approved"):
+                return {"ok": False, "detail": "gig not fireable (state or ownership)"}
+            settings = _fl_tokens(user_id)
+            pid = _project_id_of(job)
+            if not pid or not settings:
+                return {"ok": False,
+                        "detail": "Freelancer.com not linked — accounts tab, then /snipe again"}
+            amt = amount if amount and amount > 0 else (job.budget_max or job.budget_min or 0)
+            if amt <= 0:
+                return {"ok": False, "detail": "no amount to bid"}
+            try:
+                result, updated = _fla.place_bid(
+                    settings, pid, amount=float(amt), period=7,
+                    description=_snipe_text(job),
+                )
+            except _fla.FreelancerError as exc:
+                return {"ok": False, "detail": str(exc)}
+            if updated:
+                db.save_connector_cfg(user_id, "freelancer_account", settings=updated)
+            db.mark_sniped(job.id, "freelancer-api", f"bid #{result.get('id')} (pocket bot)")
+            return {"ok": True, "bid_id": result.get("id"), "amount": float(amt)}
+
+        def stats() -> dict:
+            return db.snipe_stats(user_id)
+
+        return {"queue": queue, "gig": gig, "approve": approve,
+                "plan": plan, "fire": fire, "stats": stats}
+
+    @app.post("/api/notify/telegram/listen")
+    def listen_toggle(body: ListenBody, request: Request) -> dict:
+        user = _user(request)
+        if not body.listen:
+            stop_pocket_listener(user["id"])
+            db.save_notify_cfg(user["id"], listen_enabled=False)
+            return {"ok": True, "listening": False}
+        cfg = db.notify_cfg(user["id"])
+        if not (cfg.get("telegram_token") and cfg.get("telegram_chat_id")):
+            raise HTTPException(
+                400, "save your bot token and chat id before arming the listener"
+            )
+        stop_pocket_listener(user["id"])  # restart clean, never double-poll
+        if len(_listeners) >= _LISTENER_CAP:
+            raise HTTPException(503, "listener slots full on this server")
+        stop_evt = threading.Event()
+        _bot, _thread = tgbot.spawn(
+            user_id=user["id"], token=cfg["telegram_token"],
+            chat_id=cfg["telegram_chat_id"], stop=stop_evt,
+            deps=_listener_deps(user["id"]),
+        )
+        _listeners[user["id"]] = {"bot": _bot, "thread": _thread, "stop": stop_evt}
+        db.save_notify_cfg(user["id"], listen_enabled=True)
+        return {"ok": True, "listening": True}
 
     # ------------------------------------------------------ upwork oauth
     def _redirect_uri(request: Request) -> str:

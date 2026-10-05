@@ -366,6 +366,19 @@ def enabled_connector_rows() -> list[tuple[int, str]]:
     return [(r["user_id"], r["connector_id"]) for r in rows]
 
 
+def listen_enabled_rows() -> list[int]:
+    """Accounts whose pocket listener should be armed when the server boots."""
+    c = _conn()
+    rows = c.execute(
+        """
+        SELECT user_id FROM notify_settings
+        WHERE listen_enabled = 1 AND telegram_token != '' AND telegram_chat_id != ''
+        """
+    ).fetchall()
+    c.close()
+    return [r["user_id"] for r in rows]
+
+
 # ------------------------------------------------------------- notify settings
 def _seed_notify_from_file() -> dict:
     """One-time import path: config.toml's [telegram] block becomes the seed

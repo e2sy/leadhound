@@ -3,6 +3,8 @@ test-message honest verdicts. Bot API is always stubbed — no network."""
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -213,3 +215,104 @@ def test_radar_reports_push_and_cadence(authed):
     assert d["push"]["telegram_enabled"] is True
     assert d["push"]["push_min_score"] == 88
     assert d["cadence"]["remoteok"] == 9
+
+
+# ------------------------------------------------------- pocket listener (C5)
+class _FakeBot:
+    errors = 0
+
+
+def _fake_spawn(calls):
+    def _spawn(*, user_id, token, chat_id, stop, deps):
+        calls.append({"user_id": user_id, "token": token, "chat": chat_id})
+        return _FakeBot(), threading.Thread(target=lambda: None, daemon=True)
+    return _spawn
+
+
+def test_listen_needs_credentials(authed):
+    r = authed.post("/api/notify/telegram/listen", json={"listen": True})
+    assert r.status_code == 400
+    assert "bot token and chat id" in r.json()["detail"]
+
+
+def test_listen_start_stop_roundtrip(monkeypatch, authed):
+    from leadhound import api
+    authed.post("/api/notify/telegram",
+                json={"token": "1:ABC", "chat_id": "42", "enabled": True})
+    calls: list = []
+    monkeypatch.setattr(api.tgbot, "spawn", _fake_spawn(calls))
+    r = authed.post("/api/notify/telegram/listen", json={"listen": True})
+    assert r.json()["listening"] is True
+    assert calls and calls[0]["chat"] == "42"
+    n = authed.get("/api/notify").json()["notify"]
+    assert n["listen_enabled"] is True and n["listening"] is True
+    radar = authed.get("/api/radar").json()["push"]
+    assert radar["listener_running"] is True
+    r = authed.post("/api/notify/telegram/listen", json={"listen": False})
+    assert r.json()["listening"] is False
+    assert authed.get("/api/notify").json()["notify"]["listening"] is False
+
+
+def test_listener_autoarms_on_server_boot(monkeypatch, authed):
+    from leadhound import api
+    uid = db.user_by_email("pocket@test.dev")["id"]
+    db.save_notify_cfg(uid, telegram_token="9:BOOT", telegram_chat_id="7",
+                       telegram_enabled=True, listen_enabled=True)
+    calls: list = []
+    monkeypatch.setattr(api.tgbot, "spawn", _fake_spawn(calls))
+    with TestClient(api.create_app(start_poller=True)) as c:
+        c.get("/api/health")  # lifespan runs on first request
+    assert len(calls) == 1 and calls[0]["user_id"] == uid
+
+
+def test_listener_not_double_spawned(monkeypatch, authed):
+    from leadhound import api
+    authed.post("/api/notify/telegram",
+                json={"token": "1:ABC", "chat_id": "42"})
+    calls: list = []
+    monkeypatch.setattr(api.tgbot, "spawn", _fake_spawn(calls))
+    authed.post("/api/notify/telegram/listen", json={"listen": True})
+    authed.post("/api/notify/telegram/listen", json={"listen": True})  # re-arm
+    assert len(calls) == 2  # restart-clean: stop old, spawn new — never two polls
+
+
+def test_connector_failure_alerts_pocket_once(monkeypatch, authed):
+    from leadhound.connectors import REGISTRY, Connector, Field
+
+    authed.post("/api/notify/telegram",
+                json={"token": "1:ALERT", "chat_id": "42", "enabled": True})
+    alerts: list[str] = []
+    monkeypatch.setattr(tg, "send_plain",
+                        lambda tok, chat, text: alerts.append(text) or True)
+
+    def boom(settings):
+        raise RuntimeError("fiverr cookie died")
+
+    monkeypatch.setitem(REGISTRY, "fiverr", Connector(
+        id="fiverr", label="Fiverr", kind="public", blurb="b",
+        fields=[Field("cookie", "Cookie")], fetch=boom))
+    authed.post("/api/connectors/fiverr", json={"enabled": True})
+    r = authed.post("/api/connectors/fiverr/run")
+    assert r.status_code == 502
+    assert len(alerts) == 1 and "fiverr cookie died" in alerts[0]
+    # same failure again -> silence (never cry wolf)
+    authed.post("/api/connectors/fiverr/run")
+    assert len(alerts) == 1
+
+
+def test_no_alert_without_telegram(monkeypatch, authed):
+    from leadhound.connectors import REGISTRY, Connector, Field
+
+    alerts: list[str] = []
+    monkeypatch.setattr(tg, "send_plain",
+                        lambda tok, chat, text: alerts.append(text) or True)
+
+    def boom(settings):
+        raise RuntimeError("upwork said no")
+
+    monkeypatch.setitem(REGISTRY, "upwork", Connector(
+        id="upwork", label="Upwork", kind="public", blurb="b",
+        fields=[Field("client_id", "ID")], fetch=boom))
+    authed.post("/api/connectors/upwork", json={"enabled": True})
+    authed.post("/api/connectors/upwork/run")
+    assert alerts == []

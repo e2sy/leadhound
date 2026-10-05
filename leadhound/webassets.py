@@ -360,6 +360,7 @@ PAGE = r"""<!DOCTYPE html>
       <button class="primary" onclick="saveTelegram()">💾 save</button>
       <button onclick="testTelegram()">📨 send test message</button>
       <button id="tgTgl" onclick="toggleTelegram()">switch on</button>
+      <button id="tgListen" onclick="toggleListen()">🎧 arm listener</button>
     </div>
     <div class="cstat" id="tgStat">no bot token yet</div>
   </div>
@@ -1022,10 +1023,13 @@ async function loadNotify(){
     $("#tgMin").value = n.push_min_score;
     $("#tgTgl").textContent = n.telegram_enabled ? "switch off" : "switch on";
     const badge = $("#tgBadge");
-    badge.textContent = n.telegram_enabled ? "armed" : "off";
-    badge.className = "badge " + (n.telegram_enabled ? "ok" : "off");
+    badge.textContent = n.listening ? "listening" : (n.telegram_enabled ? "armed" : "off");
+    badge.className = "badge " + (n.listening ? "ok" : (n.telegram_enabled ? "warn" : "off"));
+    $("#tgListen").textContent = n.listen_enabled ? "🎧 disarm listener" : "🎧 arm listener";
     $("#tgStat").textContent = n.has_token
-      ? "bot token saved ✓" + (n.listen_enabled ? " · two-way listening" : "")
+      ? (n.listening
+          ? "bot token saved ✓ · two-way listener live — try /queue in your chat"
+          : "bot token saved ✓")
       : "no bot token yet";
   }catch{ /* dashboard stays usable offline */ }
 }
@@ -1052,6 +1056,16 @@ window.toggleTelegram = async () => {
     if(!cur || !cur.has_token){ toast("save a bot token first", true); return; }
     const d = await post("/api/notify/telegram",
       {enabled: !cur.telegram_enabled}, cur.telegram_enabled ? "push off" : "📱 push armed");
+    if(d) loadNotify();
+  }catch{ toast("network error", true); }
+};
+window.toggleListen = async () => {
+  try{
+    const cur = (await (await fetch("/api/notify")).json()).notify;
+    if(!cur || !cur.has_token){ toast("save a bot token + chat id first", true); return; }
+    const d = await post("/api/notify/telegram/listen",
+      {listen: !cur.listen_enabled},
+      cur.listen_enabled ? "listener off" : "🎧 pocket listener armed — /queue in your chat");
     if(d) loadNotify();
   }catch{ toast("network error", true); }
 };

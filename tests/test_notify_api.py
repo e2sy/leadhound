@@ -117,3 +117,99 @@ def test_db_seeds_token_from_config_file(authed):
     n = authed.get("/api/notify").json()["notify"]
     assert n["has_token"] is True
     assert n["telegram_chat_id"] == "9001"
+
+
+def _job(guid: str) -> dict:
+    return {
+        "guid": guid,
+        "source": "remoteok",
+        "title": guid,
+        "url": f"https://example.com/{guid}",
+        "body": "react developer needed",
+        "tags": ["react"],
+    }
+
+
+def test_push_min_score_gates_telegram(monkeypatch, authed):
+    """Below the bar: stored on the board, silent in the pocket."""
+    from leadhound import pipeline
+    from leadhound.config import LLMConfig, Profile, TelegramConfig
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        pipeline.tg, "send_job_card",
+        lambda tok, chat, j, b: sent.append(j.title) or True,
+    )
+    monkeypatch.setattr(pipeline.tg, "send_draft", lambda tok, chat, j: True)
+    fixed = {"skills": {"matched": ["x"]}, "budget": {}, "red_flags": []}
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (75, dict(fixed)))
+    prof = Profile(name="T", headline="", skills=[], min_hourly=0,
+                   min_fixed_budget=0, red_flags=[], highlights=[], tone_samples=[])
+    tg = TelegramConfig(enabled=True, bot_token="t", chat_id="c")
+    uid = db.user_by_email("pocket@test.dev")["id"]
+
+    pipeline.ingest_jobs([_job("quiet")], profile=prof, llm_cfg=LLMConfig(),
+                         min_score=60, tg_cfg=tg, tg_min_score=80, user_id=uid)
+    assert sent == []  # 75 < 80: no buzz
+
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (90, dict(fixed)))
+    pipeline.ingest_jobs([_job("loud")], profile=prof, llm_cfg=LLMConfig(),
+                         min_score=60, tg_cfg=tg, tg_min_score=80, user_id=uid)
+    assert sent == ["loud"]  # 90 >= 80: fired
+
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (62, dict(fixed)))
+    pipeline.ingest_jobs([_job("loud2")], profile=prof, llm_cfg=LLMConfig(),
+                         min_score=60, tg_cfg=tg, tg_min_score=0, user_id=uid)
+    assert "loud2" in sent  # bar 0 -> board threshold rules (old behavior)
+
+
+def test_per_user_isolation_in_pipeline(monkeypatch, authed):
+    """user B (no telegram) must never inherit user A's bot."""
+    from leadhound import pipeline
+    from leadhound.config import LLMConfig, Profile, TelegramConfig
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        pipeline.tg, "send_job_card",
+        lambda tok, chat, j, b: sent.append((chat, j.title)) or True,
+    )
+    monkeypatch.setattr(pipeline.tg, "send_draft", lambda tok, chat, j: True)
+    fixed = {"skills": {"matched": ["x"]}, "budget": {}, "red_flags": []}
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (95, dict(fixed)))
+    prof = Profile(name="T", headline="", skills=[], min_hourly=0,
+                   min_fixed_budget=0, red_flags=[], highlights=[], tone_samples=[])
+    tg = TelegramConfig(enabled=True, bot_token="t", chat_id="c")
+    a = db.user_by_email("pocket@test.dev")["id"]
+    b = db.create_user("b@test.dev", "pw")["id"]
+
+    pipeline.ingest_jobs([_job("for-a")], profile=prof, llm_cfg=LLMConfig(),
+                         min_score=60, tg_cfg=tg, tg_min_score=0, user_id=a)
+    pipeline.ingest_jobs([_job("for-b")], profile=prof, llm_cfg=LLMConfig(),
+                         min_score=60, tg_cfg=None, tg_min_score=0, user_id=b)
+    assert sent == [("c", "for-a")]
+
+
+def test_cadence_endpoint(authed):
+    r = authed.post("/api/notify/cadence",
+                    json={"connector": "remoteok", "minutes": 3})
+    assert r.status_code == 200
+    assert r.json()["minutes"] == 5  # floor
+    r = authed.post("/api/notify/cadence",
+                    json={"connector": "remoteok", "minutes": 500})
+    assert r.json()["minutes"] == 120  # ceiling
+    r = authed.post("/api/notify/cadence",
+                    json={"connector": "nope", "minutes": 10})
+    assert r.status_code == 404
+    stored = db.connector_cfg(db.user_by_email("pocket@test.dev")["id"], "remoteok")
+    assert stored["settings"]["poll_minutes"] == 120
+
+
+def test_radar_reports_push_and_cadence(authed):
+    authed.post("/api/notify/telegram", json={"token": "1:2", "chat_id": "3",
+                                              "enabled": True, "push_min_score": 88})
+    authed.post("/api/notify/cadence", json={"connector": "remoteok", "minutes": 9})
+    authed.post("/api/connectors/remoteok", json={"enabled": True})
+    d = authed.get("/api/radar").json()
+    assert d["push"]["telegram_enabled"] is True
+    assert d["push"]["push_min_score"] == 88
+    assert d["cadence"]["remoteok"] == 9

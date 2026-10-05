@@ -36,7 +36,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import __version__, auth, connectors, db
-from .config import load_config, load_profile
+from .config import TelegramConfig, load_config, load_profile
 from .connectors import freelancer_account as _fla
 from .connectors import upwork as _upwork
 from .engine import intel
@@ -214,13 +214,24 @@ def run_connector_for(user_id: int, cid: str, *, wait: bool = True) -> dict:
         except Exception as exc:
             db.record_connector_run(user_id, cid, "error", str(exc), 0)
             return {"connector": cid, "new": 0, "error": str(exc)}
-        watch_cfg, llm_cfg, tg_cfg, wh_cfg, em_cfg = load_config()
+        watch_cfg, llm_cfg, _, wh_cfg, em_cfg = load_config()
+        n = db.notify_cfg(user_id)
+        tg_cfg = (
+            TelegramConfig(
+                enabled=True,
+                bot_token=n.get("telegram_token") or "",
+                chat_id=n.get("telegram_chat_id") or "",
+            )
+            if n.get("telegram_enabled")
+            else None
+        )
         results = ingest_jobs(
             jobs,
             profile=load_profile(),
             llm_cfg=llm_cfg,
             min_score=watch_cfg.min_score,
             tg_cfg=tg_cfg,
+            tg_min_score=int(n.get("push_min_score") or 0),
             wh_cfg=wh_cfg,
             em_cfg=em_cfg,
             user_id=user_id,
@@ -270,9 +281,19 @@ def _poll_loop(stop: threading.Event, interval_min: int) -> None:
             if stop.is_set():
                 return
             cfg = db.connector_cfg(uid, cid)
-            if _last_run_age_min(cfg) < interval:
+            if _last_run_age_min(cfg) < _connector_interval(cfg, interval):
                 continue
             run_connector_for(uid, cid)
+
+
+def _connector_interval(cfg: dict, fallback: int) -> int:
+    """Per-source cadence: settings.poll_minutes wins, global interval is the
+    floor-guarded default. Clamped 5..120 so nobody DDoSes a source."""
+    try:
+        per = int((cfg.get("settings") or {}).get("poll_minutes") or 0)
+    except (TypeError, ValueError):
+        per = 0
+    return max(POLL_FLOOR_MIN, min(120, per)) if per else fallback
 
 
 # ------------------------------------------------------------------ app factory
@@ -323,6 +344,11 @@ class NotifyBody(BaseModel):
     enabled: bool | None = None
     listen: bool | None = None
     push_min_score: int | None = None
+
+
+class CadenceBody(BaseModel):
+    connector: str
+    minutes: int
 
 
 def create_app(*, start_poller: bool = False) -> FastAPI:
@@ -389,14 +415,25 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
     def radar(request: Request) -> dict:
         """Is the sniping radar actually hunting? Honest visibility into the poller."""
         user = _user(request)
-        enabled = sum(
-            1 for cfg in db.connector_cfgs(user["id"]).values() if cfg.get("enabled")
-        )
+        cfgs = db.connector_cfgs(user["id"])
+        enabled = sum(1 for cfg in cfgs.values() if cfg.get("enabled"))
+        n = db.notify_cfg(user["id"])
         return {
             "ok": True,
             "running": _poller_state["running"],
             "interval_minutes": _poller_state["interval"],
             "enabled_sources": enabled,
+            "push": {
+                "telegram_enabled": bool(n.get("telegram_enabled")),
+                "listen_enabled": bool(n.get("listen_enabled")),
+                "has_token": bool(n.get("telegram_token")),
+                "push_min_score": int(n.get("push_min_score") or 0),
+            },
+            "cadence": {
+                cid: _connector_interval(cfg, _poller_state["interval"])
+                for cid, cfg in cfgs.items()
+                if cfg.get("enabled")
+            },
         }
 
     # ---------------------------------------------------------------- auth
@@ -693,6 +730,19 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             )
         ok, detail = tg.send_test_message(token, chat)
         return JSONResponse({"ok": ok, "detail": detail}, status_code=200 if ok else 502)
+
+    @app.post("/api/notify/cadence")
+    def set_cadence(body: CadenceBody, request: Request) -> dict:
+        """Per-source radar cadence, clamped 5..120 — politeness is not optional."""
+        user = _user(request)
+        if connectors.get(body.connector) is None:
+            raise HTTPException(404, "unknown connector")
+        minutes = max(POLL_FLOOR_MIN, min(120, int(body.minutes)))
+        stored = db.connector_cfg(user["id"], body.connector)
+        settings = dict(stored.get("settings") or {})
+        settings["poll_minutes"] = minutes
+        db.save_connector_cfg(user["id"], body.connector, settings=settings)
+        return {"ok": True, "connector": body.connector, "minutes": minutes}
 
     # ------------------------------------------------------ upwork oauth
     def _redirect_uri(request: Request) -> str:

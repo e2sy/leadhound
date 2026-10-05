@@ -36,11 +36,16 @@ def ingest_jobs(
     llm_cfg: LLMConfig,
     min_score: int = 0,
     tg_cfg: TelegramConfig | None = None,
+    tg_min_score: int = 0,
     wh_cfg: WebhookConfig | None = None,
     em_cfg: EmailConfig | None = None,
     user_id: int | None = None,
 ) -> list[Ingested]:
-    """Run every job through the scope. Returns per-job results."""
+    """Run every job through the scope. Returns per-job results.
+
+    tg_min_score raises the bar for Telegram pushes specifically (0 = push
+    everything that made the board), so the pocket stays quiet until a gig
+    is actually worth the buzz."""
     from . import db  # local import: db imports config, avoids cycles
 
     results: list[Ingested] = []
@@ -60,9 +65,10 @@ def ingest_jobs(
             rid=rid, job=job, score=score, breakdown=breakdown,
             draft=draft, mode=mode, is_new=is_new,
         )
-        if is_new and draft and (tg_on or wh_on or em_on):
+        tg_wants = tg_on and score >= (tg_min_score if tg_min_score > 0 else min_score)
+        if is_new and draft and (tg_wants or wh_on or em_on):
             stored = db.get_job(rid)
-            if tg_on:
+            if tg_wants:
                 ok = tg.send_job_card(tg_cfg.bot_token, tg_cfg.chat_id, stored, breakdown)
                 if draft:
                     tg.send_draft(tg_cfg.bot_token, tg_cfg.chat_id, stored)

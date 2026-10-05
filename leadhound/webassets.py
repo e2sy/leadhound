@@ -88,6 +88,7 @@ PAGE = r"""<!DOCTYPE html>
   .obadge{font-size:11.5px; padding:1px 8px; border-radius:999px; border:1px solid}
   .o-won{color:var(--green); border-color:var(--green)}
   .o-replied{color:var(--amber); border-color:var(--amber)}
+  .o-interview{color:var(--cyan); border-color:var(--cyan)}
   .o-lost{color:var(--red); border-color:var(--red)}
 
   details.draft{margin-top:8px; border-top:1px dashed var(--line); padding-top:8px}
@@ -217,6 +218,25 @@ PAGE = r"""<!DOCTYPE html>
   .snote{margin-top:9px; font-size:11px; color:var(--dim)}
   .schip{font-size:11px; padding:1px 8px; border-radius:999px; border:1px solid var(--amber); color:var(--amber)}
 
+  /* ---------------- stats tab ---------------- */
+  #statsView{max-width:1100px; margin:0 auto; padding:14px 18px 30px}
+  .scards{display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:10px; margin-bottom:16px}
+  .scard{background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:12px 14px}
+  .scard .k{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.6px}
+  .scard .v{font-size:22px; font-weight:800; margin-top:2px}
+  .scard .s{font-size:11px; color:var(--dim); margin-top:2px}
+  .scard.hot{border-color:rgba(63,185,80,.4)}
+  .spanel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:14px}
+  .spanel h3{font-size:12.5px; margin-bottom:8px; color:var(--dim); text-transform:uppercase; letter-spacing:.8px}
+  .brow{display:flex; align-items:center; gap:8px; padding:5px 0; font-size:12.5px}
+  .brow .bl{width:130px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .brow .btrack{flex:1; height:10px; background:var(--bg); border:1px solid var(--line); border-radius:999px; overflow:hidden}
+  .brow .bfill{display:block; height:100%; background:var(--blue); border-radius:999px}
+  .brow .bfill.g{background:var(--green)}
+  .brow .bn{width:190px; text-align:right; color:var(--dim); font-size:11.5px; white-space:nowrap}
+  .sline{font-size:12.5px; color:var(--dim); padding:4px 0}
+  .sline b{color:var(--txt)}
+
   @media (max-width:920px){
     #board{grid-template-columns:repeat(4, minmax(270px, 1fr)); overflow-x:auto}
     .cards{max-height:none}
@@ -254,6 +274,7 @@ PAGE = r"""<!DOCTYPE html>
     <input id="q" placeholder="search gigs…" oninput="S.q=this.value; render()">
     <nav class="vtabs">
       <button id="tabBoard" class="sel" onclick="showView('board')">▦ board</button>
+      <button id="tabStats" onclick="showView('stats')">📊 stats</button>
       <button id="tabAccts" onclick="showView('accounts')">🔗 accounts <span id="connN" class="chip blue">0</span></button>
     </nav>
     <button id="autoBtn" class="on" onclick="toggleAuto()" title="auto-refresh every 8s">⟳ auto</button>
@@ -305,6 +326,16 @@ PAGE = r"""<!DOCTYPE html>
 
 <div id="toasts"></div>
 
+<div id="statsView" hidden>
+  <div class="ahead">
+    <div>
+      <h2>📊 the scoreboard</h2>
+      <div class="asub">what happened <b>after</b> the shots were fired — replies, wins, money.</div>
+    </div>
+  </div>
+  <div id="statsBody">loading…</div>
+</div>
+
 <div id="snipeModal" hidden>
   <div class="sbox">
     <h3 id="sTitle"></h3>
@@ -342,7 +373,7 @@ const COLS = [
 ];
 const S = {jobs:[], cal:{}, q:"", auto:true, editing:null, draftVal:"", timer:null,
            demo:false, user:null, connectors:[], authMode:"login", view:"board",
-           snipePlan:null, snipe:{}, linked:{}};
+           snipePlan:null, snipe:{}, linked:{}, stats:null};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
@@ -573,15 +604,84 @@ const KINDLABEL = {public:"no setup", keys:"API keys", cookie:"cookie", feed:"fe
 window.showView = v => {
   S.view = v;
   $("#tabBoard").classList.toggle("sel", v === "board");
+  $("#tabStats").classList.toggle("sel", v === "stats");
   $("#tabAccts").classList.toggle("sel", v === "accounts");
   $("#accountsView").hidden = v !== "accounts";
+  $("#statsView").hidden = v !== "stats";
   ["#hero", "#board", "#hintbar"].forEach(sel => {
     const el = $(sel);
     if(el) el.style.display = v === "board" ? "" : "none";
   });
   if(v === "accounts") loadConnectors();
+  else if(v === "stats") loadStats();
   else updateSteps();
 };
+
+/* ------------------------------------------------- stats */
+async function loadStats(){
+  try{
+    const r = await fetch("/api/stats");
+    if(r.status === 401){ boot(); return; }
+    if(!r.ok) throw new Error("http " + r.status);
+    S.stats = await r.json();
+    renderStats();
+  }catch(e){
+    const b = $("#statsBody");
+    if(b) b.innerHTML = `<div class="empty">could not load stats — is the server up?</div>`;
+  }
+}
+
+function renderStats(){
+  const d = S.stats;
+  if(!d) return;
+  const f = d.funnel || {}, p = d.pipeline || {}, cal = d.calibration || {};
+  const pct = x => x == null ? "—" : x + "%";
+  const money0 = n => "$" + Number(n || 0).toLocaleString("en-US");
+  const cards = [
+    {k:"shots fired", v:f.sniped ?? 0, s:"sniped gigs, all time", cls:""},
+    {k:"reply rate", v:pct(f.reply_rate), s:f.replies + " of " + (f.sniped ?? 0) + " replied", cls:""},
+    {k:"win rate", v:pct(f.win_rate), s:f.wins + "W / " + (f.losses ?? 0) + "L resolved", cls:"hot"},
+    {k:"won value", v:money0(f.won_value), s:"fixed-price, all time", cls:"hot"},
+    {k:"in play", v:money0(p.inplay_value), s:(p.inplay_n ?? 0) + " gig(s) awaiting a verdict", cls:""},
+    {k:"interviews", v:f.interviews ?? 0, s:"the stage between reply and verdict", cls:""},
+  ];
+  const maxSent = Math.max(1, ...(f.by_source || []).map(r => r.sent || 0));
+  const srcRows = (f.by_source || []).map(r => `
+    <div class="brow">
+      <span class="bl" title="${esc(r.source)}">${esc(r.source)}</span>
+      <span class="btrack"><span class="bfill ${r.wins ? "g" : ""}" style="width:${Math.round(100*(r.sent||0)/maxSent)}%"></span></span>
+      <span class="bn">${r.sent} fired · ${r.replies} replied${r.wins ? " · 🏆 " + r.wins + " · " + money0(r.won_value) : ""}${r.reply_rate != null ? " · " + r.reply_rate + "%" : ""}</span>
+    </div>`).join("") || `<div class="sline">nothing fired yet — snipe something first.</div>`;
+  const mApi = (f.by_method || {})["freelancer-api"], mKit = (f.by_method || {})["kit"];
+  const mline = m => m
+    ? `<div class="sline">${m.sent} fired · <b>${m.replies} replied</b>${m.wins ? " · 🏆 " + m.wins + " won" : ""}</div>`
+    : `<div class="sline">none yet</div>`;
+  const calBits = Object.entries(cal).filter(([k]) => k !== "hint").map(([k, v]) =>
+    `<span class="chip">${esc(k)}: ${v.n} (avg ${v.avg_score})</span>`).join(" ");
+  const body = $("#statsBody");
+  if(!body) return;
+  body.innerHTML = `
+    <div class="scards">${cards.map(c => `
+      <div class="scard ${c.cls}"><div class="k">${esc(c.k)}</div><div class="v">${c.v}</div><div class="s">${esc(c.s)}</div></div>`).join("")}
+    </div>
+    <div class="spanel">
+      <h3>per-source conversion</h3>
+      ${srcRows}
+      <div class="sline">bar = share of your shots · % = reply rate. feed the green rows, prune the dead ones.</div>
+    </div>
+    <div class="spanel">
+      <h3>live-fire vs kit</h3>
+      <div class="sline">🔥 <b>live-fire bids</b> — official Freelancer.com API, real bids on your account</div>
+      ${mline(mApi)}
+      <div class="sline">🎯 <b>snipe kit</b> — proposal copied + gig opened, you paste &amp; send</div>
+      ${mline(mKit)}
+    </div>
+    <div class="spanel">
+      <h3>scope calibration</h3>
+      <div class="sline">${calBits || "no outcomes marked yet"}</div>
+      ${cal.hint ? `<div class="sline">🧠 ${esc(cal.hint)}</div>` : ""}
+    </div>`;
+}
 
 async function loadRadar(){
   try{
@@ -804,6 +904,7 @@ function card(j){
     acts = `<select onchange="setOutcome(${j.id}, this.value)">
               <option value="">outcome…</option>
               <option value="replied"${j.outcome==="replied"?" selected":""}>↩ replied</option>
+              <option value="interview"${j.outcome==="interview"?" selected":""}>🎤 interview</option>
               <option value="won"${j.outcome==="won"?" selected":""}>🏆 won</option>
               <option value="lost"${j.outcome==="lost"?" selected":""}>✗ lost</option>
             </select>

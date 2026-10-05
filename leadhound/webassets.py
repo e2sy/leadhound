@@ -5,6 +5,8 @@ v4: the sniper — 🎯 snipe button on every gig card with a fire dialog
 (Freelancer.com live-fire real bids via the linked account, honest snipe
 kit everywhere else), sniped column with audit badges, snipe stats chips,
 and the Freelancer.com account-link card with OAuth wizard.
+v5: dark/light theme toggle, PWA install support, saved filter presets
+and the ✨ improve-draft button in the proposal editor.
 All user-controlled strings are HTML-escaped with esc() before insertion.
 """
 
@@ -19,6 +21,13 @@ PAGE = r"""<!DOCTYPE html>
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --line:#21262d;
     --txt:#e6edf3; --dim:#8b949e; --blue:#58a6ff; --green:#3fb950;
     --red:#f85149; --amber:#e3b341; --cyan:#39c5cf;
+    --headbg:rgba(13,17,23,.92);
+  }
+  html[data-theme="light"]{
+    --bg:#f6f8fa; --panel:#ffffff; --panel2:#eef1f6; --line:#d9dee7;
+    --txt:#1f2630; --dim:#5c6675; --blue:#0b62c4; --green:#148a3a;
+    --red:#c9352e; --amber:#9a6a00; --cyan:#0c7c86;
+    --headbg:rgba(246,248,250,.92);
   }
   *{box-sizing:border-box; margin:0; padding:0}
   body{background:var(--bg); color:var(--txt);
@@ -36,7 +45,7 @@ PAGE = r"""<!DOCTYPE html>
          border-radius:8px; padding:6px 10px; outline:none}
   input:focus,textarea:focus,select:focus{border-color:var(--blue)}
 
-  header{position:sticky; top:0; z-index:10; background:rgba(13,17,23,.92);
+  header{position:sticky; top:0; z-index:10; background:var(--headbg);
          backdrop-filter:blur(6px); border-bottom:1px solid var(--line);
          padding:10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
   .brand{font-weight:800; font-size:17px; letter-spacing:.5px; white-space:nowrap}
@@ -297,6 +306,7 @@ PAGE = r"""<!DOCTYPE html>
     <button id="autoBtn" class="on" onclick="toggleAuto()" title="auto-refresh every 8s">⟳ auto</button>
     <button onclick="toggleKeyHelp()" title="keyboard shortcuts (?)">⌨</button>
     <button id="bellBtn" onclick="toggleBell()" title="browser alerts when new gigs land (while the dashboard is open)">🔔</button>
+    <button id="themeBtn" onclick="toggleTheme()" title="light / dark theme">🌙</button>
     <button class="primary" onclick="fetchNow()" title="fetch every enabled source now">⚡ fetch gigs</button>
     <div id="userbox">
       <span class="who" id="whoami"></span>
@@ -605,6 +615,20 @@ window.fetchNow = async () => {
   await load(); loadConnectors();
 };
 window.loadDemo = () => post("/api/demo", {}, "sample gigs loaded ✓").then(() => { load(); showView("board"); });
+
+/* ------------------------------------------------- theme */
+function applyTheme(){
+  const t = localStorage.getItem("lh_theme") || "dark";
+  document.documentElement.dataset.theme = t;
+  const b = $("#themeBtn");
+  if(b) b.textContent = t === "light" ? "☀️" : "🌙";
+}
+window.toggleTheme = () => {
+  const next = (localStorage.getItem("lh_theme") || "dark") === "light" ? "dark" : "light";
+  localStorage.setItem("lh_theme", next);
+  applyTheme();
+};
+applyTheme();
 
 /* ------------------------------------------------- browser alerts */
 window.toggleBell = async () => {

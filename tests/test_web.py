@@ -84,6 +84,12 @@ class TestHealth:
         assert r.status_code == 200
         assert "LEADHOUND" in r.text and "/api/state" in r.text
 
+    def test_dashboard_has_theme_toggle(self, client):
+        html = client.get("/").text
+        assert 'data-theme="light"' in html          # light palette override exists
+        assert "toggleTheme" in html                 # toggle wired in the header
+        assert "lh_theme" in html                    # choice persists in localStorage
+
     def test_favicon(self, client):
         assert client.get("/favicon.ico").status_code == 204
 

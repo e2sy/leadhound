@@ -1,0 +1,22 @@
+# keep the image lean — build artefacts and local state stay out
+.git
+.github
+build
+dist
+*.egg-info
+.ghcache
+tests
+docs
+examples
+scripts
+*.spec
+push-to-github.sh
+Dockerfile
+.dockerignore
+compose.yml
+.db
+.leadhound
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache

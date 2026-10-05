@@ -1,0 +1,14 @@
+services:
+  leadhound:
+    build: .
+    container_name: leadhound
+    ports:
+      - "7800:7800"
+    volumes:
+      - leadhound_data:/data
+    restart: unless-stopped
+    # after it boots: http://localhost:7800 — create an account in the UI,
+    # then arm sources in the accounts tab.
+
+volumes:
+  leadhound_data:

@@ -15,6 +15,9 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <title>🐺 leadhound — snipe console</title>
 <style>
   :root{
@@ -629,6 +632,11 @@ window.toggleTheme = () => {
   applyTheme();
 };
 applyTheme();
+
+/* ------------------------------------------------- PWA install */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
 
 /* ------------------------------------------------- browser alerts */
 window.toggleBell = async () => {
@@ -1303,3 +1311,66 @@ boot();
 </body>
 </html>
 """
+
+# ---------------------------------------------------------------- PWA assets
+# Sniper-scope icon: pure vector, renders identically everywhere (no font games).
+ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0d1117"/>
+  <path d="M256 40v96M256 376v96M40 256h96M376 256h96" stroke="#58a6ff" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#58a6ff" stroke-width="26"/>
+  <circle cx="256" cy="256" r="72" fill="none" stroke="#3fb950" stroke-width="26"/>
+  <circle cx="256" cy="256" r="24" fill="#f85149"/>
+</svg>"""
+
+MANIFEST = r"""{
+  "name": "leadhound — gig sniper",
+  "short_name": "leadhound",
+  "description": "Watches freelance job boards, scores every gig, drafts the proposal. You approve and fire.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}"""
+
+# Shell cache only — /api/* is live data and is NEVER cached. Navigation goes
+# network-first so updates land on the next reload; icons are cache-first.
+SW_JS = r"""/* leadhound service worker — pocket-console shell cache */
+const CACHE = "leadhound-v1";
+const SHELL = ["/", "/icon.svg", "/manifest.webmanifest"];
+
+self.addEventListener("install", e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", e => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
+  if (e.request.mode === "navigate") {
+    e.respondWith(
+      fetch(e.request).then(r => {
+        const copy = r.clone();
+        caches.open(CACHE).then(c => c.put("/", copy)).catch(() => {});
+        return r;
+      }).catch(() => caches.match("/").then(r => r || Response.error()))
+    );
+    return;
+  }
+  e.respondWith(
+    caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
+      const copy = r.clone();
+      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      return r;
+    }).catch(() => Response.error()))
+  );
+});"""

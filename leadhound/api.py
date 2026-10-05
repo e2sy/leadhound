@@ -44,7 +44,7 @@ from .engine.voice import draft_proposal
 from .notify import telegram as tg
 from .notify import tgbot
 from .pipeline import ingest_jobs
-from .webassets import PAGE
+from .webassets import ICON_SVG, MANIFEST, PAGE, SW_JS
 
 _MAX_PREVIEW = 400
 _MASK = "•••"  # sentinel returned instead of stored secrets
@@ -453,6 +453,19 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
     @app.get("/favicon.ico", status_code=204)
     def favicon() -> Response:
         return Response(status_code=204)
+
+    # ------------------------------------------------------------- PWA
+    @app.get("/manifest.webmanifest")
+    def webmanifest() -> Response:
+        return Response(MANIFEST, media_type="application/manifest+json")
+
+    @app.get("/sw.js")
+    def service_worker() -> Response:
+        return Response(SW_JS, media_type="application/javascript")
+
+    @app.get("/icon.svg")
+    def icon() -> Response:
+        return Response(ICON_SVG, media_type="image/svg+xml")
 
     @app.get("/api/health")
     def health() -> dict:

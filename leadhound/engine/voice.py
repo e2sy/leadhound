@@ -7,6 +7,8 @@ Two modes:
 
 from __future__ import annotations
 
+import re
+
 import requests
 
 from ..config import LLMConfig, Profile
@@ -102,3 +104,93 @@ def draft_proposal(
         except Exception:
             pass
     return _template_draft(job, profile, matched), "template"
+
+
+def _llm_improve(
+    job: dict, profile: Profile, llm: LLMConfig, draft: str, matched: list[str]
+) -> str:
+    system = (
+        "You are a freelance proposal editor. Rewrite the freelancer's draft so it "
+        "earns the reply: a specific opener tied to the job post, one or two proof "
+        "bullets, a concrete 3-step plan, and a closing question. Max 150 words. "
+        "Keep the freelancer's voice and every factual claim already present — "
+        "never invent experience, never flatter, never repeat the job post back."
+    )
+    tone = "\n---\n".join(profile.tone_samples[:3]) or "(no samples — keep it warm and direct)"
+    user = (
+        f"MY PROFILE\nName: {profile.name}\nHeadline: {profile.headline}\n"
+        f"Skills: {', '.join(profile.skills)}\n"
+        f"Highlights: {' | '.join(profile.highlights)}\n\n"
+        f"MY TONE SAMPLES\n{tone}\n\n"
+        f"JOB POST\nTitle: {job['title']}\nMatched skills: {', '.join(matched)}\n\n"
+        f"CURRENT DRAFT\n{draft}\n\n"
+        f"Rewrite it. Output only the improved proposal."
+    )
+    r = requests.post(
+        f"{llm.base_url.rstrip('/')}/chat/completions",
+        headers={"Authorization": f"Bearer {llm.api_key}"},
+        json={
+            "model": llm.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.6,
+            "max_tokens": 400,
+        },
+        timeout=45,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+def improve_template(
+    job: dict, profile: Profile, draft: str, matched: list[str]
+) -> tuple[str, list[str]]:
+    """Deterministic sharpening — zero-config, zero-network.
+
+    Keeps every custom line the freelancer wrote; appends only the pieces a
+    winning proposal usually misses: a closing question, a concrete plan,
+    a budget acknowledgment. Returns (text, changes)."""
+    text = (draft or "").strip()
+    if not text:
+        return _template_draft(job, profile, matched), [
+            "empty draft — started a fresh template"
+        ]
+    changes: list[str] = []
+    lowered = text.lower()
+    if "?" not in text:
+        text += "\n\nWorth a quick chat?"
+        changes.append("added a closing question")
+    if not any(w in lowered for w in ("week", "milestone", "step", "plan", "start", "demo")):
+        steps = [SKILL_STEPS.get(s, FALLBACK_STEP) for s in matched[:2]] or [FALLBACK_STEP]
+        plan = "\n".join(f"{i}) {s}" for i, s in enumerate(steps, 1))
+        text += f"\n\nQuick plan:\n{plan}"
+        changes.append("added a concrete plan")
+    if (
+        not any(w in lowered for w in ("budget", "$", "rate", "/hr", "fixed"))
+        and (job.get("hourly") or job.get("budget_max") or job.get("budget_min"))
+    ):
+        text += "\n\nYour budget works for me."
+        changes.append("acknowledged the budget")
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text, changes
+
+
+def improve_draft(
+    job: dict, profile: Profile, llm: LLMConfig, draft: str, matched: list[str]
+) -> tuple[str, str, list[str]]:
+    """One-click rewrite of an existing draft.
+
+    LLM mode rewrites in your voice; template mode sharpens deterministically.
+    Never raises: any LLM failure falls back to the template pass.
+    Returns (text, mode, changes)."""
+    if llm.enabled and llm.api_key:
+        try:
+            return _llm_improve(job, profile, llm, draft, matched), "llm", [
+                "rewritten in your voice"
+            ]
+        except Exception:
+            pass
+    text, changes = improve_template(job, profile, draft, matched)
+    return text, "template", changes

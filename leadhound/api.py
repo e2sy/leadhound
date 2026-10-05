@@ -40,7 +40,7 @@ from .config import TelegramConfig, load_config, load_profile
 from .connectors import freelancer_account as _fla
 from .connectors import upwork as _upwork
 from .engine import intel
-from .engine.voice import draft_proposal
+from .engine.voice import draft_proposal, improve_draft
 from .notify import telegram as tg
 from .notify import tgbot
 from .pipeline import ingest_jobs
@@ -392,6 +392,10 @@ class RuleToggleBody(BaseModel):
     enabled: bool = True
 
 
+class ImproveBody(BaseModel):
+    text: str
+
+
 class ListenBody(BaseModel):
     listen: bool
 
@@ -628,6 +632,28 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True}
+
+    @app.post("/api/jobs/{job_id}/improve")
+    def improve(job_id: int, body: ImproveBody, request: Request) -> dict:
+        """One-click rewrite of the proposal being edited — LLM when configured,
+        deterministic sharpening otherwise. Returns text + what changed."""
+        user = _user(request)
+        job = _own_job(user, job_id)
+        if not body.text.strip():
+            raise HTTPException(422, "nothing to improve — write a line first")
+        matched = (job.breakdown.get("skills") or {}).get("matched") or []
+        job_dict = {
+            "title": job.title,
+            "body": job.body,
+            "hourly": job.hourly,
+            "budget_min": job.budget_min,
+            "budget_max": job.budget_max,
+        }
+        _, llm_cfg, _, _, _ = load_config()
+        text, mode, changes = improve_draft(
+            job_dict, load_profile(), llm_cfg, body.text, matched
+        )
+        return {"ok": True, "text": text, "mode": mode, "changes": changes}
 
     @app.post("/api/demo")
     def load_demo(request: Request) -> dict:

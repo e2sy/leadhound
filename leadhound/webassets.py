@@ -634,6 +634,21 @@ window.saveDraft = (id, silent) => {
          silent ? null : "variant " + side + " saved ✓").then(load);
   }
 };
+window.improveDraft = async id => {
+  if(S.editing !== id) return;
+  const ta = $("#ta" + id);
+  const cur = (ta ? ta.value : S.draftVal) || "";
+  if(!cur.trim()){ toast("nothing to improve yet — write a line first", true); return; }
+  const btn = event && event.target ? event.target : null;
+  if(btn){ btn.disabled = true; }
+  const d = await post(`/api/jobs/${id}/improve`, {text: cur}, null);
+  if(btn){ btn.disabled = false; }
+  if(!d) return;
+  S.draftVal = d.text;
+  if(ta) ta.value = d.text;
+  toast("✨ sharpened (" + d.mode + ")" + (d.changes && d.changes.length ? " — " + d.changes.join(", ") : ""));
+};
+
 window.copyDraft = async id => {
   const j = S.jobs.find(x => x.id === id);
   const text = (S.editing === id) ? S.draftVal : (j ? j.draft : "");
@@ -1296,6 +1311,7 @@ function card(j){
         <textarea oninput="onDraftInput(${j.id})" id="ta${j.id}"></textarea>
         <div class="draftbtns">
           <button onclick="saveDraft(${j.id})">💾 save ${(S.draftSide||"A")==="A" ? "draft" : "variant " + esc(S.draftSide)}</button>
+          <button onclick="improveDraft(${j.id})" title="one-click rewrite — sharper opener, plan, closing question">✨ improve</button>
           <button onclick="copyDraft(${j.id})">⧉ copy</button>
         </div>
       </div>` : ""}

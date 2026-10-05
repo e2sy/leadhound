@@ -342,6 +342,10 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [ ] Hosted SaaS mode — same core, multi-tenant cloud deploy (the account + connector schema is already shaped for it)
 - [x] **Proposal A/B testing** — clone any draft as variant B, fire both, the scoreboard crowns the winner
 - [x] **Pocket sniper (v0.9.0)** — two-way Telegram bot: `/queue` `/snipe` from your phone, chat-gated, confirm-before-fire
+- [x] **Auto-snipe rules (v0.9.1)** — score/keyword/budget rules auto-approve hot gigs; firing still needs a human click
+- [x] **Starter packs (v0.9.1)** — one-click niche bundles (dev / design / marketing / support / product / firehose) on verified feed channels
+- [x] **Installable console (v0.9.1)** — PWA manifest + service worker, light/dark themes, saved filter views, ✨ improve-draft
+- [x] **One-container self-host (v0.9.1)** — `docker compose up`, gig history on a `/data` volume
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

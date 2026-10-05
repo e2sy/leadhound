@@ -3,6 +3,24 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.9.1] - 2026-10-06
+
+The routine release. v0.9.0 put the sniper in your pocket; v0.9.1 makes the daily grind disappear — the board adapts to daylight, installs to a phone home screen, rewrites your proposals, arms a whole niche in one click, and self-hosts in one container.
+
+### Added
+- **🌓 Dark/light theme** — the console adapts to daylight. Light palette via CSS variables, moon/sun button in the header, choice persists in localStorage, no flash on reload.
+- **📲 Installable pocket console (PWA)** — `manifest.webmanifest` + a shell-caching service worker + a sniper-scope SVG icon. `/api/*` live data is never cached; navigation is network-first so updates land on the next reload. The dashboard now installs to a phone home screen — pairs with the Telegram pocket sniper.
+- **⚡ Auto-snipe rules** — arm a rule (min score 60–99, optional keywords/source/budget caps) and any fresh gig that clears it lands straight in **Approved** with an ⚡ auto badge and the rule name in the audit trail. The guardrail stays honest: **rules auto-approve, they never auto-bid** — firing stays behind a human click on the board or `/snipe` in the pocket. Refetching never re-arms a gig you demoted. `GET/POST /api/rules`, `DELETE /api/rules/{id}`, `POST /api/rules/{id}/enabled`; the accounts hub grows a rules card.
+- **✨ Improve-draft** — one-click rewrite of the proposal being edited. LLM mode rewrites in your voice (your tone samples attached, never invents experience); template mode sharpens deterministically with zero config — adds the missing closing question, concrete plan and budget ack, keeps every custom line. LLM failures fall back silently. `POST /api/jobs/{id}/improve`.
+- **📦 Starter packs** — six verified packs (💻 dev, 🎨 design, 📣 marketing, 🎧 support, 🧭 product, 🐺 freelance firehose): one click switches the right sources on **and** points each at its feed channel (WeWorkRemotely category feeds, Remotive categories — every slug verified live before landing). Existing queries/cookies/keys are kept. `GET /api/presets`, `POST /api/presets/{key}/apply`.
+- **🤖 Pocket bot `/digest` + `/ping`** — `/digest`: pending/approved/sniped counts, reply + win rates, and the three best pending gigs with ids; `/ping`: liveness, armed sources, last sweep time. Composed by pure functions — zero db, zero network in the formatter.
+- **💾 Saved views** — the filter bar gains a source picker, a score bar and named views (localStorage, max 8): one click back to "hot react gigs ≥ 80".
+- **🐳 One-container self-host** — `Dockerfile` + `compose.yml`: `docker compose up` and you're hunting. Everything lives under `LEADHOUND_HOME=/data`, so the container is disposable and your gig history is not; first boot auto-inits (idempotent).
+- **🩺 Update checker in doctor** — compares your version against the latest GitHub release; a newer version is a yellow warning with the upgrade hint, never a hard fail, and `--offline` skips it.
+
+### Changed
+- 40+ new tests (rules matcher + pipeline hook + API, improve paths, pack registry + channels, bot digest/ping, doctor update check — all network-free); 350+ total.
+
 ## [0.9.0] - 2026-10-06
 
 The pocket sniper release. The board lives on your phone now — gigs land in Telegram the moment the radar spots them, and you can run the whole queue from your chat.

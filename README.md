@@ -211,11 +211,15 @@ POST /api/jobs/{id}/snipe                       fire: real bid via the linked ac
 POST /api/jobs/{id}/snipe-confirm               kit send confirmed by the user
 GET  /api/connectors                            all sources + per-account config
 POST /api/connectors/{id} · {id}/run            configure / fetch a source now
+POST /api/notify                                per-user push settings (Telegram)
+POST /api/notify/telegram/test                  fire a test message, surface Telegram's verdict
+POST /api/notify/cadence                        per-source poll cadence (5–120 min)
+POST /api/notify/telegram/listen                arm / disarm the two-way pocket bot
 POST /api/fetch                                 fetch every enabled source now
 GET  /api/health                                liveness + version
 ```
 
-Every board route is account-scoped, and a background radar re-runs enabled connectors every `interval_minutes` (floor: 5) — the sniping works while you sleep.
+Every board route is account-scoped, the radar re-runs each enabled connector on its **own cadence** (per-source, clamped 5–120 min) — and the pocket listener survives server restarts by re-arming on boot.
 
 ## 🛡️ ToS-safe by design
 
@@ -231,13 +235,24 @@ Platforms ban bots that log in, scrape logged-in pages, and auto-send. leadhound
 
 It makes you faster — not banned.
 
-## 📱 Telegram in 2 minutes
+## 📱 Pocket sniper (Telegram) in 2 minutes
+
+One-time setup, all inside the dashboard — no config files, no CLI:
 
 1. Talk to [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token
 2. Message your bot once, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` → copy `chat.id`
-3. Fill `[telegram]` in `~/.leadhound/config.toml`, set `enabled = true`
+3. Open **🔗 accounts → 📱 telegram pocket sniper**, paste both, hit **save**, then **📨 send test message**
+4. **switch on** = one-way push. **🎧 arm listener** = the full two-way cockpit:
 
-Now every gig above your threshold buzzes your pocket with the draft attached — approve on your phone, send from your laptop.
+| Command | What it does |
+|---|---|
+| `/queue [n]` | best pending gigs, score first |
+| `/gig <id>` | full card + the drafted proposal |
+| `/approve <id>` | move it to approved |
+| `/snipe <id> [amount]` | **arms** a real Freelancer.com bid — shows the plan, waits for your 🔥 Fire tap. Kit-mode sources answer honestly instead. |
+| `/stats` | your scoreboard, pocket-sized |
+
+The listener is **chat-gated** — a stray `/queue` from any other chat gets silence, never your data. Every snipe asks before it fires, and the confirm dies after 5 minutes (restarts can never leave a half-armed bid). If a source breaks (expired cookie, dead token), the bot tells *you* — once per new failure, never spam.
 
 Prefer Discord or Slack? Drop a webhook URL into `[webhooks]` in `config.toml` and the same gig cards land in your server the moment the watcher sees them.
 
@@ -326,6 +341,7 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] **Accounts hub** — connection state, setup wizards, save & test probing, radar heartbeat
 - [ ] Hosted SaaS mode — same core, multi-tenant cloud deploy (the account + connector schema is already shaped for it)
 - [x] **Proposal A/B testing** — clone any draft as variant B, fire both, the scoreboard crowns the winner
+- [x] **Pocket sniper (v0.9.0)** — two-way Telegram bot: `/queue` `/snipe` from your phone, chat-gated, confirm-before-fire
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

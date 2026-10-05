@@ -3,6 +3,22 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [0.9.0] - 2026-10-06
+
+The pocket sniper release. The board lives on your phone now — gigs land in Telegram the moment the radar spots them, and you can run the whole queue from your chat.
+
+### Added
+- **📱 Two-way Telegram bot** — arm the listener in the accounts tab and your chat becomes a cockpit: `/queue [n]` (best pending gigs), `/gig <id>` (full card + draft), `/approve <id>`, **`/snipe <id> [amount]`** (arms a real Freelancer.com bid — shows the plan, waits for the inline 🔥 Fire tap; the confirm state is memory-only with a 5-minute TTL, so a restart can never leave a half-armed bid), `/stats`. Every handler is **chat-gated**: a stray command from any other chat gets silence, never your board. Sends are serialized at ~1/s per chat and 429s honor `retry_after`.
+- **🎧 Listener lifecycle** — one long-poll bot per account (cap 8), restart-clean (re-arming never double-polls a token), auto-armed on server boot for accounts that left it on, disarmed on shutdown. `POST /api/notify/telegram/listen`.
+- **⚠️ Honest failure alerts** — when a source breaks (expired Fiverr cookie, dead token), the bot messages you **once per new failure** — repeated errors stay silent, so the pocket never becomes a boy who cried wolf.
+- **🎚️ Per-source radar cadence** — each connector polls on its own `poll_minutes` (clamped 5–120, global interval remains the fallback). `POST /api/notify/cadence`; `GET /api/radar` reports live cadence + push + listener state.
+- **📱 Telegram settings in the dashboard** — the accounts hub grows a pocket-sniper card: token (masked, never echoed back), chat id, push score bar, **send test message** that surfaces Telegram's own verdict verbatim, and the arm/disarm listener toggle.
+- **🔐 Per-user notify settings** — a `notify_settings` table (token, chat id, push toggle, listener toggle, push score bar) replaces the global config file for Telegram. Pre-0.9 users are migrated silently: the first read seeds from `[telegram]` in `config.toml`.
+
+### Changed
+- The ingest pipeline pushes through **each account's own bot with their own score bar** — account A's gigs can never buzz account B's pocket, and `push_min_score` keeps the pocket quiet until a gig is worth the buzz (0 = old board-threshold behavior).
+- 30 new tests (command parser, confirm TTL, chat gating, per-user isolation, listener lifecycle, alert-once discipline — all network-free); 316 total.
+
 ## [0.8.0] - 2026-10-05
 
 The closer's release. Sniping was v0.7.0; v0.8.0 teaches the sniper to **count kills** — and to learn which ammo wins.

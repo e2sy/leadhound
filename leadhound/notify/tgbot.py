@@ -311,6 +311,9 @@ class PocketBot:
             return str(self.deps["ping"]()), None
         if cmd == "digest":
             return str(self.deps["digest"]()), None
+        if cmd == "followups":
+            fn = self.deps.get("followups")
+            return (str(fn()) if fn else "follow-ups live on the board"), None
         return (
             "unknown command — /help lists the arsenal", None
         )
@@ -324,6 +327,7 @@ class PocketBot:
             "/snipe &lt;id&gt; [amount] — Freelancer live-fire (asks first)\n"
             "/stats — the scoreboard\n"
             "/digest — board summary + the three best gigs\n"
+            "/followups — which sent gigs are due a bump\n"
             "/ping — is the radar alive?\n"
             "/help — this card"
         ).replace("&lt;", "<").replace("&gt;", ">")

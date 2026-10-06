@@ -213,6 +213,19 @@ def _ensure_accounts(c: sqlite3.Connection) -> None:
         """
     )
     c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS followups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER UNIQUE,
+            user_id INTEGER,
+            due_at TEXT NOT NULL,
+            count INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'scheduled',
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
+    c.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id)"
     )
     c.execute(
@@ -759,6 +772,9 @@ def mark_sniped(job_id: int, method: str, note: str = "", variant: str | None = 
     bid id or the confirmation context. variant records WHICH proposal went
     out (None/'A' = the job's main draft, 'B' = an A/B variant) — the
     learning signal for the proposal duel.
+
+    Every shot auto-schedules a follow-up bump for +3 days (silent until a
+    human decides to fire it) — replies go quiet, bumps win them back.
     """
     c = _conn()
     if variant:
@@ -773,8 +789,104 @@ def mark_sniped(job_id: int, method: str, note: str = "", variant: str | None = 
             "snipe_method = ?, snipe_note = ? WHERE id = ?",
             (method, note, job_id),
         )
+    row = c.execute("SELECT user_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if row:
+        c.execute(
+            "INSERT OR IGNORE INTO followups (job_id, user_id, due_at) "
+            "VALUES (?, ?, datetime('now', '+3 days'))",
+            (job_id, row["user_id"]),
+        )
     c.commit()
     c.close()
+
+
+# ------------------------------------------------------------- follow-ups
+
+def schedule_followup(job_id: int, *, days: int = 3) -> bool:
+    """Schedule (or reschedule) a bump. Returns False if already sent."""
+    c = _conn()
+    row = c.execute(
+        "SELECT status FROM followups WHERE job_id = ?", (job_id,)
+    ).fetchone()
+    if row and row["status"] == "sent":
+        c.close()
+        return False
+    c.execute(
+        "INSERT OR REPLACE INTO followups (job_id, user_id, due_at, count, status) "
+        "VALUES (?, (SELECT user_id FROM jobs WHERE id = ?), "
+        "datetime('now', ?), 0, 'scheduled')",
+        (job_id, job_id, f"+{max(1, days)} days"),
+    )
+    c.commit()
+    c.close()
+    return True
+
+
+def followup_for_job(job_id: int) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM followups WHERE job_id = ?", (job_id,)).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def followup_by_id(fid: int) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM followups WHERE id = ?", (fid,)).fetchone()
+    c.close()
+    return dict(row) if row else None
+
+
+def followups_for(user_id: int | None, *, due_only: bool = False) -> list[dict]:
+    """Follow-up rows (joined with the gig) — scoped like everything else."""
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+    sql = (
+        "SELECT f.id, f.job_id, f.due_at, f.count, f.status, "
+        "j.title, j.source, j.url, j.outcome "
+        "FROM followups f JOIN jobs j ON j.id = f.job_id "
+        "WHERE (? = 0 OR f.user_id IS NULL OR f.user_id = ?) "
+        "AND j.status = 'sent'"
+    )
+    params: list = [flag, uid]
+    if due_only:
+        sql += " AND f.status = 'scheduled' AND f.due_at <= datetime('now')"
+    else:
+        sql += " AND f.status = 'scheduled'"
+    sql += " ORDER BY f.due_at ASC"
+    rows = c.execute(sql, params).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def followup_mark_sent(followup_id: int) -> None:
+    c = _conn()
+    c.execute(
+        "UPDATE followups SET status = 'sent', count = count + 1 WHERE id = ?",
+        (followup_id,),
+    )
+    c.commit()
+    c.close()
+
+
+def followup_cancel(followup_id: int) -> None:
+    c = _conn()
+    c.execute("UPDATE followups SET status = 'cancelled' WHERE id = ?", (followup_id,))
+    c.commit()
+    c.close()
+
+
+def followups_map(user_id: int | None) -> dict[int, dict]:
+    """{job_id: followup} for every scheduled follow-up in scope."""
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+    rows = c.execute(
+        "SELECT job_id, id, due_at, count, status FROM followups "
+        "WHERE status = 'scheduled' "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
+    ).fetchall()
+    c.close()
+    return {r["job_id"]: dict(r) for r in rows}
 
 
 # ------------------------------------------------------------------- variants
@@ -1071,6 +1183,12 @@ def set_outcome(job_id: int, outcome: str) -> None:
                     row["source"] or "",
                 ),
             )
+    # any verdict on the gig kills a pending bump — nothing to chase anymore
+    c.execute(
+        "UPDATE followups SET status = 'cancelled' "
+        "WHERE job_id = ? AND status = 'scheduled'",
+        (job_id,),
+    )
     c.commit()
     c.close()
 

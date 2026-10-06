@@ -113,6 +113,10 @@ PAGE = r"""<!DOCTYPE html>
   .clmark.y{color:var(--green)}
   .clmark.n{color:#f85149}
   .clmark.u{color:var(--amber)}
+  .bump{margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+        font-size:12.5px; color:var(--dim); border-top:1px dashed var(--line); padding-top:8px}
+  .bump button{font-size:11.5px; padding:3px 8px}
+  .bump b{color:var(--red)}
   textarea{width:100%; min-height:130px; margin-top:7px;
            font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; resize:vertical}
   .draftbtns{display:flex; gap:6px; margin-top:6px}
@@ -722,6 +726,27 @@ window.showChecklist = async id => {
   if(!r.ok || !d.ok){ toast(d.detail || "checklist failed", true); return; }
   S.cl = S.cl || {}; S.cl[id] = d.items;
   render();
+};
+
+window.planBump = async id => {
+  const d = await post(`/api/jobs/${id}/followup`, {days: 3},
+    "🔁 bump scheduled for +3 days");
+  if(d) load();
+};
+window.fireBump = async (id, fid) => {
+  const r = await fetch(`/api/followups/${fid}/fire`, {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: "{}"});
+  if(r.status === 401){ boot(); return; }
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok || !d.ok){ toast(d.detail || "bump failed", true); return; }
+  try{ await navigator.clipboard.writeText(d.text || "");
+       toast("🔁 bump copied — paste it in the thread ✓"); }
+  catch(e){ toast("bump marked sent — text was not clipboard-readable", true); }
+  load();
+};
+window.cancelBump = async (id, fid) => {
+  const d = await post(`/api/followups/${fid}/cancel`, {}, "bump cancelled");
+  if(d) load();
 };
 
 window.fetchNow = async () => {
@@ -1371,6 +1396,15 @@ function card(j){
   const open = S.editing === j.id;
   const hasB = (j.variants || []).some(v => v.label === "B");
   const cl = (S.cl || {})[j.id];
+  const fu = j.followup;
+  const fuDue = fu && fu.due_at && new Date(String(fu.due_at).replace(" ", "T") + "Z") <= new Date();
+  const bumpLine = j.status === "sent"
+    ? (fu
+        ? `<div class="bump">🔁 follow-up ${fuDue ? "<b>due now</b>" : "scheduled " + esc(String(fu.due_at).slice(0, 10))}
+            <button onclick="fireBump(${j.id},${fu.id})">copy &amp; send</button>
+            <button onclick="cancelBump(${j.id},${fu.id})" title="cancel this bump">✕</button></div>`
+        : `<div class="bump">🔁 quiet 3 days? <button onclick="planBump(${j.id})">＋ schedule a bump</button></div>`)
+    : "";
   const clBlock = cl ? `<div class="cl">` + cl.map(i =>
     `<div class="clrow"><span class="clmark ${i.ok === true ? "y" : i.ok === false ? "n" : "u"}">${i.ok === true ? "✓" : i.ok === false ? "✗" : "?"}</span><b>${esc(i.label)}</b><span class="cld">${esc(i.detail)}</span></div>`
   ).join("") + `</div>` : "";
@@ -1413,6 +1447,7 @@ function card(j){
     ${j.body ? `<div class="prev">${esc(j.body)}</div>` : ""}
     ${j.budget_note ? `<div class="prev">${esc(j.budget_note)}</div>` : ""}
     ${clBlock}
+    ${bumpLine}
     <div class="acts">${acts}
       <button onclick="toggleDraft(${j.id})">✎ ${open ? "close" : "draft"}</button>
       <button onclick="copyDraft(${j.id})">⧉ copy</button>

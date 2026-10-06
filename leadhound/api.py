@@ -44,7 +44,7 @@ from .connectors import freelancer_account as _fla
 from .connectors import freelancer_hook as _flhook
 from .connectors import upwork as _upwork
 from .engine import intel, qualify, rank
-from .engine.voice import draft_proposal, improve_draft
+from .engine.voice import draft_proposal, followup_draft, improve_draft
 from .notify import telegram as tg
 from .notify import tgbot
 from .pipeline import ingest_jobs
@@ -147,6 +147,7 @@ def build_state(user_id: int | None = None) -> dict:
                 late=bool(j.late),
             )
             pending_rank[j.id] = rs
+    fus = db.followups_map(user_id)
     return {
         "stats": db.stats(user_id),
         "calibration": db.calibration(user_id),
@@ -155,7 +156,8 @@ def build_state(user_id: int | None = None) -> dict:
         "linked": {"freelancer": bool(_fl_tokens(user_id))},
         "jobs": [
             {**job_to_dict(j, variants),
-             **({"rank": pending_rank[j.id]} if j.id in pending_rank else {})}
+             **({"rank": pending_rank[j.id]} if j.id in pending_rank else {}),
+             **({"followup": fus[j.id]} if j.id in fus else {})}
             for j in jobs
         ],
     }
@@ -642,6 +644,10 @@ class RuleToggleBody(BaseModel):
 
 class ImproveBody(BaseModel):
     text: str
+
+
+class FollowupBody(BaseModel):
+    days: int = 3
 
 
 class ListenBody(BaseModel):
@@ -1165,6 +1171,59 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             "items": qualify.checklist(job_dict, job.breakdown, load_profile()),
         }
 
+    # ---------------------------------------------------------- follow-ups
+    @app.get("/api/followups")
+    def list_followups(request: Request) -> dict:
+        """Quiet replies come back when you bump them — here's the chase list."""
+        user = _user(request)
+        uid = user["id"]
+        return {
+            "ok": True,
+            "due": db.followups_for(uid, due_only=True),
+            "scheduled": db.followups_for(uid),
+        }
+
+    @app.post("/api/jobs/{job_id}/followup")
+    def schedule_bump(job_id: int, body: FollowupBody, request: Request) -> dict:
+        user = _user(request)
+        _own_job(user, job_id)
+        job = db.get_job(job_id)
+        if job is None or job.status != "sent":
+            raise HTTPException(400, "follow-ups only make sense on sent gigs")
+        ok = db.schedule_followup(job_id, days=body.days)
+        if not ok:
+            raise HTTPException(400, "this bump already went out")
+        return {"ok": True, "followup": db.followup_for_job(job_id)}
+
+    @app.post("/api/followups/{fid}/fire")
+    def fire_bump(fid: int, request: Request) -> dict:
+        """Returns the bump text (human sends it) and marks the bump done."""
+        user = _user(request)
+        fu = db.followup_by_id(fid)
+        if fu is None:
+            raise HTTPException(404, "no such follow-up")
+        _own_job(user, fu["job_id"])
+        job = db.get_job(fu["job_id"])
+        job_dict = {
+            "title": job.title,
+            "_matched": (job.breakdown.get("skills") or {}).get("matched") or [],
+        }
+        text = followup_draft(
+            job_dict, load_profile(), days=3, count=fu["count"] or 0
+        )
+        db.followup_mark_sent(fid)
+        return {"ok": True, "text": text}
+
+    @app.post("/api/followups/{fid}/cancel")
+    def cancel_bump(fid: int, request: Request) -> dict:
+        user = _user(request)
+        fu = db.followup_by_id(fid)
+        if fu is None:
+            raise HTTPException(404, "no such follow-up")
+        _own_job(user, fu["job_id"])
+        db.followup_cancel(fid)
+        return {"ok": True}
+
     # ---------------------------------------------------------- connectors
     @app.get("/api/connectors")
     def list_connectors(request: Request) -> dict:
@@ -1342,6 +1401,19 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             job = _own(jid)
             return tgbot.fmt_gig_card(job, job.draft or "") if job else None
 
+        def followups() -> str:
+            due = db.followups_for(user_id, due_only=True)
+            if not due:
+                return "no follow-ups due — quiet board 🤝"
+            lines = ["🔁 <b>follow-ups due</b>"]
+            for f in due[:8]:
+                lines.append(
+                    f"#{f['job_id']} · {str(f['title'])[:40]} · "
+                    f"bump {f['count'] or 0} sent · due {str(f['due_at'])[:10]}"
+                )
+            lines.append("fire them from the board — the bump text is one click")
+            return "\n".join(lines)
+
         def approve(jid: int) -> str:
             job = _own(jid)
             if not job:
@@ -1435,7 +1507,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
 
         return {"queue": queue, "gig": gig, "approve": approve,
                 "plan": plan, "fire": fire, "stats": stats,
-                "ping": ping, "digest": digest}
+                "ping": ping, "digest": digest, "followups": followups}
 
     @app.post("/api/notify/telegram/listen")
     def listen_toggle(body: ListenBody, request: Request) -> dict:

@@ -194,3 +194,45 @@ def improve_draft(
             pass
     text, changes = improve_template(job, profile, draft, matched)
     return text, "template", changes
+
+
+# ------------------------------------------------------------------ bumps
+
+def followup_draft(
+    job: dict, profile: Profile, *, days: int = 3, count: int = 0
+) -> str:
+    """A polite follow-up bump — short, honest, easy to answer.
+
+    Deterministic template on purpose: a bump is 3 sentences, not an
+    essay, and it must never invent new claims about the work. `count`
+    is how many bumps already went out for this gig (0 = first nudge).
+    """
+    title = (job.get("title") or "the project").strip()
+    if len(title) > 60:
+        title = title[:57].rstrip() + "…"
+    matched = job.get("_matched") or []
+    skill = matched[0] if matched else None
+    opener = (
+        "following up on my proposal" if count == 0
+        else "one more (and last) nudge about my proposal"
+    )
+    lines = [
+        f"Hi — {opener} for \"{title}\", sent {days} day(s) ago.",
+    ]
+    if skill:
+        lines.append(
+            f"Since then I sketched how the {skill} piece would start — "
+            "happy to share the plan, no strings."
+        )
+    else:
+        lines.append(
+            "Since then I sketched a first-milestone plan — "
+            "happy to share it, no strings."
+        )
+    lines.append(
+        "Is this still open? A one-line yes/no works either way — "
+        "I'll stop nudging after this."
+        if count > 0 else
+        "Is this still open? A one-line yes/no works either way."
+    )
+    return "\n\n".join(lines) + f"\n\n— {profile.name}"

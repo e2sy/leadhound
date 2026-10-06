@@ -1366,6 +1366,8 @@ function card(j){
     ? `<span class="schip" style="border-color:var(--green);color:var(--green)" title="auto-approved by rule: ${esc(j.auto_rule)}">⚡ auto</span>` : "";
   const latebadge = j.late
     ? `<span class="schip" style="border-color:var(--amber);color:var(--amber)" title="caught up after downtime — this gig dropped while leadhound was off">⏰ late</span>` : "";
+  const rankbadge = (j.status === "pending" && j.rank != null)
+    ? `<span class="schip" style="border-color:var(--blue);color:var(--blue)" title="rank v2: score x freshness x source trust — the queue orders by this">⌖ ${j.rank}</span>` : "";
   const open = S.editing === j.id;
   const hasB = (j.variants || []).some(v => v.label === "B");
   const cl = (S.cl || {})[j.id];
@@ -1398,7 +1400,7 @@ function card(j){
     <div class="row">
       <div class="ring" style="border-color:${ringColor(j.score)};color:${ringColor(j.score)}">${j.score}</div>
       <div style="min-width:0">
-        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}${latebadge}</div>
+        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}${latebadge}${rankbadge}</div>
         <div class="meta">
           <span class="chip blue">${esc(j.source)}</span>
           ${m ? `<span class="chip amber">$${esc(m).replace("$","")}</span>` : ""}
@@ -1502,7 +1504,8 @@ function render(){
   $("#board").style.display = S.jobs.length ? "" : "none";
   const order = [];
   $("#board").innerHTML = COLS.map(c => {
-    const list = jobs.filter(j => j.status === c.key).sort((a,b) => b.score - a.score || b.id - a.id);
+    const list = jobs.filter(j => j.status === c.key)
+      .sort((a,b) => (b.rank ?? b.score) - (a.rank ?? a.score) || b.id - a.id);
     list.forEach(j => order.push(j.id));
     return `<div class="col">
       <h2>${c.label} <span class="n">${list.length}</span></h2>

@@ -43,7 +43,7 @@ from .config import TelegramConfig, load_config, load_profile
 from .connectors import freelancer_account as _fla
 from .connectors import freelancer_hook as _flhook
 from .connectors import upwork as _upwork
-from .engine import intel, qualify
+from .engine import intel, qualify, rank
 from .engine.voice import draft_proposal, improve_draft
 from .notify import telegram as tg
 from .notify import tgbot
@@ -135,13 +135,29 @@ def build_state(user_id: int | None = None) -> dict:
     jobs = db.all_jobs(limit=300, user_id=user_id)
     demo = bool(jobs) and all(j.source == "demo" for j in jobs)
     variants = db.all_variants()
+    # queue ranking v2: pending gigs carry a composite rank (score x
+    # freshness x source trust) so the board orders by urgency, not just fit
+    pending_rank: dict[int, int] = {}
+    pending = [j for j in jobs if j.status == "pending"]
+    if pending:
+        rel = rank.reliability(db.funnel_stats(user_id).get("by_source") or [])
+        for j in pending:
+            rs, _, _ = rank.rank_score(
+                j.score, j.posted_at, rel.get(j.source, rank.REL_DEFAULT),
+                late=bool(j.late),
+            )
+            pending_rank[j.id] = rs
     return {
         "stats": db.stats(user_id),
         "calibration": db.calibration(user_id),
         "demo": demo,
         "snipe": db.snipe_stats(user_id),
         "linked": {"freelancer": bool(_fl_tokens(user_id))},
-        "jobs": [job_to_dict(j, variants) for j in jobs],
+        "jobs": [
+            {**job_to_dict(j, variants),
+             **({"rank": pending_rank[j.id]} if j.id in pending_rank else {})}
+            for j in jobs
+        ],
     }
 
 
@@ -920,6 +936,30 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             "funnel": db.funnel_stats(user["id"]),
             "pipeline": db.stats(user["id"]),
             "calibration": db.calibration(user["id"]),
+        }
+
+    @app.get("/api/queue")
+    def queue(request: Request) -> dict:
+        """Approval queue ranked best-first: fit x freshness x source trust."""
+        user = _user(request)
+        pending = db.jobs_by_status("pending", user_id=user["id"], limit=200)
+        rows = rank.ranked_queue(
+            pending, db.funnel_stats(user["id"]).get("by_source") or []
+        )
+        return {
+            "ok": True,
+            "queue": [
+                {
+                    "id": r["job"].id,
+                    "title": r["job"].title,
+                    "score": r["job"].score,
+                    "rank_score": r["rank_score"],
+                    "freshness": r["freshness"],
+                    "source": r["job"].source,
+                    "reason": r["reason"],
+                }
+                for r in rows
+            ],
         }
 
     @app.post("/api/status")

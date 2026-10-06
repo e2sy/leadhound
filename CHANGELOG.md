@@ -3,6 +3,16 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [1.1.0] - 2026-10-06
+
+The learner release. The scope stopped guessing: it now nudges scores from your real wins and losses, names lowballs before you waste a proposal on them, hands you a six-line pre-flight read before you approve, and orders the queue by urgency instead of raw fit.
+
+### Added
+- **🧠 Win-memory** — every `won`/`lost` outcome snapshots the gig's shape; new gigs that fuzz-match a memory (rapidfuzz, difflib fallback) get a capped nudge of ±10 points — wins lean in, losses warn. Your battle record now feeds the scope. `breakdown.memory` exposes points + notes.
+- **🛡 Price guard** — €/£ quotes normalize to USD (rough public rates, stated as such) so floors compare fairly across sources; half-your-floor lowballs take an extra −5 and get named in the note; too-shiny rates (>$300/hr) warn instead of celebrate; every money read carries a confidence (`structured > regex > silence`) in `breakdown.budget.confidence`.
+- **✅ Qualification checklist** — one tap on any pending/approved card (or `GET /api/jobs/{id}/checklist`): six honest lines — stack fit, budget reality, client signals, red flags, freshness — each yes / no / **unknown**. A missing budget is not a pass.
+- **⌖ Queue ranking v2** — rank = score × freshness × source trust. Freshness decays in honest tiers (1h/6h/24h/72h); source trust is your own funnel reply-rate per source (neutral until 5 shots on record); late catch-up gigs get a freshness floor because you just saw them. `/api/queue` returns the ranked queue, pending cards carry a ⌖ rank chip, and the pending column orders by it. A 95-pointer from four days ago finally loses to an 80-pointer from ten minutes ago.
+
 ## [1.0.0] - 2026-10-06
 
 The machine gun release. Detection latency collapsed from minutes to seconds (Freelancer webhooks), downtime stopped costing gigs (catch-up sweeps), dead threads stopped pretending to be alive (radar heartbeat + watchdog), and the cheap feeds learned to poll twice a minute without being rude (conditional GET + jitter). This is what "working" was supposed to mean.

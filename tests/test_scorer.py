@@ -36,14 +36,18 @@ class TestScoreJob:
         cheap = dict(BASE_JOB)
         cheap["body"] = "Stack: React, TypeScript, Stripe, Node.js, Python, Next.js. $10/hr."
         total, breakdown = score_job(cheap, profile)
-        assert breakdown["budget"]["points"] == 5
-        assert total == 60 + 5 + 8
+        # base 5 (below floor) then the price guard smites the lowball: -5
+        assert breakdown["budget"]["points"] == 0
+        assert "lowball rate" in breakdown["budget"]["note"]
+        assert total == 60 + 0 + 8
 
     def test_no_budget_is_neutral(self, profile):
         vague = dict(BASE_JOB)
         vague["body"] = "just react stuff"
         _, breakdown = score_job(vague, profile)
-        assert breakdown["budget"]["note"] == "no budget stated (neutral)"
+        # still neutral points; the guard only adds an honest hint
+        assert breakdown["budget"]["note"].startswith("no budget stated (neutral)")
+        assert breakdown["budget"]["confidence"] == "low"
 
     def test_zero_skills_scores_low(self, profile):
         alien = {

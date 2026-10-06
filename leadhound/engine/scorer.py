@@ -25,12 +25,20 @@ def score_job(
 
     budget_min, budget_max, hourly = parser.extract_money(text)
     # RemoteOK/Remotive sometimes give structured salary fields
+    structured = False
     if hourly is None and job.get("hourly"):
         hourly = job["hourly"]
+        structured = True
     if budget_min is None and job.get("budget_min"):
         budget_min, budget_max = job["budget_min"], job.get("budget_max")
+        structured = True
+    confidence = parser.money_confidence(text, structured=structured)
 
     budget_pts, budget_note = _budget_points(profile, hourly, budget_min)
+    guard_pts, guard_note = _price_guard(profile, hourly, budget_min, confidence)
+    budget_pts = max(0, min(25, budget_pts + guard_pts))
+    if guard_note:
+        budget_note = f"{budget_note}; {guard_note}" if budget_note else guard_note
     quality_pts, signals = parser.extract_quality(text)
     red = parser.find_red_flags(text, profile.red_flags)
 
@@ -49,6 +57,7 @@ def score_job(
             "fixed_min": budget_min,
             "fixed_max": budget_max,
             "note": budget_note,
+            "confidence": confidence,
         },
         "client_quality": {"points": quality_pts, "signals": signals},
         "red_flags": red,
@@ -71,3 +80,25 @@ def _budget_points(profile: Profile, hourly, budget_min) -> tuple[int, str]:
             return 15, f"${budget_min:,.0f} fixed is below your floor"
         return 5, f"${budget_min:,.0f} fixed is far below your floor"
     return 10, "no budget stated (neutral)"
+
+
+def _price_guard(profile: Profile, hourly, budget_min, confidence: str) -> tuple[int, str]:
+    """Lowball reality-check on top of the base budget fit.
+
+    The scope already rates money fit; the guard punishes the specific
+    shape of a waste-of-time gig (half your floor) and warns on reads
+    that are too thin or too shiny to trust.
+    """
+    pts, notes = 0, []
+    if hourly is not None:
+        if hourly < 0.5 * profile.min_hourly:
+            pts -= 5
+            notes.append("lowball rate — half your floor")
+        if hourly > 300:
+            notes.append("unusually high rate — verify before celebrating")
+    elif budget_min is not None and budget_min < 0.3 * profile.min_fixed_budget:
+        pts -= 5
+        notes.append("lowball fixed budget — a fraction of your floor")
+    if confidence == "low":
+        notes.append("no stated budget — worth an asking reply")
+    return pts, "; ".join(notes)

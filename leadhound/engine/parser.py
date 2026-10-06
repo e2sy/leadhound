@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import re
 
-MONEY_RE = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+|\d{2,6})")
+# Symbols the regex understands, with rough USD conversion for normalization.
+CURRENCY_RATES = {"$": 1.0, "€": 1.10, "£": 1.27}
+MONEY_RE = re.compile(r"([$€£])\s?(\d{1,3}(?:,\d{3})+|\d{2,6})")
 RANGE_RE = re.compile(
-    r"\$\s?(\d{1,3}(?:,\d{3})+|\d{2,6})\s?(?:-|–|—|to)\s?\$?\s?(\d{1,3}(?:,\d{3})+|\d{2,6})"  # noqa: RUF001
+    r"([$€£])\s?(\d{1,3}(?:,\d{3})+|\d{2,6})\s?(?:-|–|—|to)\s?([$€£])?\s?(\d{1,3}(?:,\d{3})+|\d{2,6})"  # noqa: RUF001
 )
-HOURLY_RE = re.compile(r"(\$\s?\d[\d,]*)(?:\s?(?:/|per\s?)\s?h(?:our|r)?|/hr)", re.IGNORECASE)
+HOURLY_RE = re.compile(
+    r"([$€£])\s?(\d[\d,]*)(?:\s?(?:/|per\s?)\s?h(?:our|r)?|/hr)", re.IGNORECASE
+)
 
 QUALITY_SIGNALS = [
     ("payment verified", 4),
@@ -21,24 +25,43 @@ def _to_f(x: str) -> float:
     return float(x.replace(",", ""))
 
 
+def _usd(symbol: str, value: float) -> float:
+    """Normalize a quoted amount to USD (rough constants, stated as such)."""
+    return round(value * CURRENCY_RATES.get(symbol, 1.0), 2)
+
+
 def extract_money(text: str) -> tuple[float | None, float | None, float | None]:
-    """Returns (budget_min, budget_max, hourly)."""
+    """Returns (budget_min, budget_max, hourly) — all normalized to USD.
+
+    € and £ quotes are converted with rough public-average rates so floors
+    compare fairly across sources; the raw symbol is never silently ignored.
+    """
     hourly = None
     m = HOURLY_RE.search(text)
     if m:
-        hourly = _to_f(MONEY_RE.search(m.group(1)).group(1))
+        hourly = _usd(m.group(1), _to_f(m.group(2)))
         return None, None, hourly
 
     m = RANGE_RE.search(text)
     if m:
-        lo, hi = _to_f(m.group(1)), _to_f(m.group(2))
+        lo = _usd(m.group(1), _to_f(m.group(2)))
+        hi = _usd(m.group(3) or m.group(1), _to_f(m.group(4)))
         if hi >= lo:
             return lo, hi, None
     m = MONEY_RE.search(text)
     if m:
-        v = _to_f(m.group(1))
+        v = _usd(m.group(1), _to_f(m.group(2)))
         return v, v, None
     return None, None, None
+
+
+def money_confidence(text: str, *, structured: bool) -> str:
+    """How much to trust the money read: structured fields > regex > silence."""
+    if structured:
+        return "high"
+    if HOURLY_RE.search(text) or RANGE_RE.search(text) or MONEY_RE.search(text):
+        return "medium"
+    return "low"
 
 
 def extract_quality(text: str) -> tuple[int, list[str]]:

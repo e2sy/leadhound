@@ -144,7 +144,7 @@ def test_push_min_score_gates_telegram(monkeypatch, authed):
     )
     monkeypatch.setattr(pipeline.tg, "send_draft", lambda tok, chat, j: True)
     fixed = {"skills": {"matched": ["x"]}, "budget": {}, "red_flags": []}
-    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (75, dict(fixed)))
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile, memories=None: (75, dict(fixed)))
     prof = Profile(name="T", headline="", skills=[], min_hourly=0,
                    min_fixed_budget=0, red_flags=[], highlights=[], tone_samples=[])
     tg = TelegramConfig(enabled=True, bot_token="t", chat_id="c")
@@ -154,12 +154,12 @@ def test_push_min_score_gates_telegram(monkeypatch, authed):
                          min_score=60, tg_cfg=tg, tg_min_score=80, user_id=uid)
     assert sent == []  # 75 < 80: no buzz
 
-    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (90, dict(fixed)))
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile, memories=None: (90, dict(fixed)))
     pipeline.ingest_jobs([_job("loud")], profile=prof, llm_cfg=LLMConfig(),
                          min_score=60, tg_cfg=tg, tg_min_score=80, user_id=uid)
     assert sent == ["loud"]  # 90 >= 80: fired
 
-    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (62, dict(fixed)))
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile, memories=None: (62, dict(fixed)))
     pipeline.ingest_jobs([_job("loud2")], profile=prof, llm_cfg=LLMConfig(),
                          min_score=60, tg_cfg=tg, tg_min_score=0, user_id=uid)
     assert "loud2" in sent  # bar 0 -> board threshold rules (old behavior)
@@ -177,7 +177,7 @@ def test_per_user_isolation_in_pipeline(monkeypatch, authed):
     )
     monkeypatch.setattr(pipeline.tg, "send_draft", lambda tok, chat, j: True)
     fixed = {"skills": {"matched": ["x"]}, "budget": {}, "red_flags": []}
-    monkeypatch.setattr(pipeline, "score_job", lambda job, profile: (95, dict(fixed)))
+    monkeypatch.setattr(pipeline, "score_job", lambda job, profile, memories=None: (95, dict(fixed)))
     prof = Profile(name="T", headline="", skills=[], min_hourly=0,
                    min_fixed_budget=0, red_flags=[], highlights=[], tone_samples=[])
     tg = TelegramConfig(enabled=True, bot_token="t", chat_id="c")

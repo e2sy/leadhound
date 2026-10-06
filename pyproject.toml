@@ -36,6 +36,7 @@ dependencies = [
   "rich>=13.0",
   "fastapi>=0.115",
   "uvicorn>=0.30",
+  "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]

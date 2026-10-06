@@ -197,6 +197,22 @@ def _ensure_accounts(c: sqlite3.Connection) -> None:
         """
     )
     c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS win_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER UNIQUE,
+            user_id INTEGER,
+            outcome TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            tags TEXT DEFAULT '',
+            budget_min REAL,
+            hourly REAL,
+            source TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
+    c.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id)"
     )
     c.execute(
@@ -1025,7 +1041,10 @@ def funnel_stats(user_id: int | None = None) -> dict:
 
 
 def set_outcome(job_id: int, outcome: str) -> None:
-    """Record what happened after you sent the proposal — the learning signal."""
+    """Record what happened after you sent the proposal — the learning signal.
+
+    won/lost also snapshot the gig into win_memory so the scorer can nudge
+    future lookalikes (the hound learning from real wounds and wins)."""
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome must be one of {OUTCOMES}")
     c = _conn()
@@ -1033,8 +1052,40 @@ def set_outcome(job_id: int, outcome: str) -> None:
         "UPDATE jobs SET outcome = ?, outcome_at = datetime('now') WHERE id = ?",
         (outcome, job_id),
     )
+    if outcome in ("won", "lost"):
+        row = c.execute(
+            "SELECT id, user_id, title, tags, budget_min, hourly, source "
+            "FROM jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+        if row:
+            c.execute(
+                """
+                INSERT OR REPLACE INTO win_memory
+                    (job_id, user_id, outcome, title, tags, budget_min, hourly, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"], row["user_id"], outcome, row["title"] or "",
+                    row["tags"] or "", row["budget_min"], row["hourly"],
+                    row["source"] or "",
+                ),
+            )
     c.commit()
     c.close()
+
+
+def win_memories(user_id: int | None = None) -> list[dict]:
+    """Snapshot rows feeding the scorer's memory nudge (scoped like jobs)."""
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+    rows = c.execute(
+        "SELECT outcome, title, tags, budget_min, hourly, source FROM win_memory "
+        "WHERE (? = 0 OR user_id IS NULL OR user_id = ?)",
+        (flag, uid),
+    ).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
 
 
 def snipe_stats(user_id: int | None = None) -> dict:

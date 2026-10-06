@@ -75,9 +75,10 @@ def ingest_jobs(
     tg_on = bool(tg_cfg and tg_cfg.enabled)
     wh_on = bool(wh_cfg and (wh_cfg.discord_webhook_url or wh_cfg.slack_webhook_url))
     em_on = bool(em_cfg and em_cfg.enabled)
+    memories = db.win_memories(user_id)  # win-memory: one lookup per batch
 
     for job in jobs:
-        score, breakdown = score_job(job, profile)
+        score, breakdown = score_job(job, profile, memories)
         draft, mode = "", ""
         if score >= min_score:
             draft, mode = draft_proposal(

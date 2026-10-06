@@ -10,10 +10,12 @@ Score anatomy:
 from __future__ import annotations
 
 from ..config import Profile
-from . import parser
+from . import memory, parser
 
 
-def score_job(job: dict, profile: Profile) -> tuple[int, dict]:
+def score_job(
+    job: dict, profile: Profile, memories: list[dict] | None = None
+) -> tuple[int, dict]:
     text = f"{job['title']}\n{job.get('body', '')}\n{' '.join(job.get('tags', []))}"
     text = text[:6000]
 
@@ -34,6 +36,11 @@ def score_job(job: dict, profile: Profile) -> tuple[int, dict]:
 
     total = max(0, min(100, skill_pts + budget_pts + quality_pts - 15 * len(red)))
 
+    mem_delta, mem_notes = 0, []
+    if memories:
+        mem_delta, mem_notes = memory.memory_adjust(job, memories)
+        total = max(0, min(100, total + mem_delta))
+
     breakdown = {
         "skills": {"points": skill_pts, "matched": matched},
         "budget": {
@@ -45,6 +52,7 @@ def score_job(job: dict, profile: Profile) -> tuple[int, dict]:
         },
         "client_quality": {"points": quality_pts, "signals": signals},
         "red_flags": red,
+        "memory": {"points": mem_delta, "notes": mem_notes},
     }
     return total, breakdown
 

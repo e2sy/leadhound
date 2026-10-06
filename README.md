@@ -349,6 +349,7 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] **One-container self-host (v0.9.1)** — `docker compose up`, gig history on a `/data` volume
 - [x] **The machine gun (v1.0.0)** — Freelancer webhook (seconds, not polls), downtime catch-up with ⏰ late flags, radar heartbeat + watchdog supervisor, 2-minute fast lane with conditional GET, /ping heartbeat board
 - [x] **The learner (v1.1.0)** — win-memory (won/lost gigs nudge future lookalikes), price guard (EUR/GBP normalize, lowballs get named), ✅ qualification checklist, ⌖ queue ranking by urgency × source trust
+- [x] **The closer's copilot (v1.2.0)** — 🔁 follow-up bumps (human-gated), 🎤 interview kits (questions, money frame, red lines), 💼 money ledger (quoted vs banked, monthly)
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

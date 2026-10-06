@@ -3,6 +3,15 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-10-06
+
+The closer's copilot release. The chase stopped being manual: quiet threads get one honest nudge (human-gated), interviews get a prepared kit instead of hope, and the money finally has a ledger.
+
+### Added
+- **🔁 Follow-up bumps** — every fired shot auto-schedules a +3-day bump; one click generates the 3-sentence text (deterministic, never invents claims) and copies it for you to paste in the thread. Any verdict cancels the chase. `GET/POST /api/followups`, `POST /api/followups/{id}/fire|cancel`, a bump line on sent cards, and `/followups` in the pocket.
+- **🎤 Interview kit** — when a gig reaches the interview stage: the gaps in the post become your questions, the money frame anchors above your floor with a walk-away line, talking points tie matched skills to YOUR highlights, and matched red flags become named red lines. Cached per gig, regenerable. `GET/POST /api/jobs/{id}/kit`, the 🎤 button on sent cards, `/kit <id>` in the pocket.
+- **💼 Money ledger** — record what YOU quoted per gig; every win and every in-play gig then values at your quote (posted budget as the honest fallback). In-play pipeline, banked total, average win, monthly bars. `POST /api/jobs/{id}/quote`, `GET /api/money`, a 💼 chip + quote setter on sent cards, a money panel on the stats tab, `/money` in the pocket.
+
 ## [1.1.0] - 2026-10-06
 
 The learner release. The scope stopped guessing: it now nudges scores from your real wins and losses, names lowballs before you waste a proposal on them, hands you a six-line pre-flight read before you approve, and orders the queue by urgency instead of raw fit.

@@ -87,7 +87,7 @@ def test_due_only_filters_by_time():
 
 
 def test_followups_scoped_per_account():
-    rid = _sent_job("fu-scope", user_id=11)
+    _sent_job("fu-scope", user_id=11)  # row just needs to exist for user 11
     assert len(db.followups_for(11)) == 1
     assert db.followups_for(12) == []
 

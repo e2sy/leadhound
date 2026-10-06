@@ -1403,7 +1403,7 @@ function card(j){
         ? `<div class="bump">🔁 follow-up ${fuDue ? "<b>due now</b>" : "scheduled " + esc(String(fu.due_at).slice(0, 10))}
             <button onclick="fireBump(${j.id},${fu.id})">copy &amp; send</button>
             <button onclick="cancelBump(${j.id},${fu.id})" title="cancel this bump">✕</button></div>`
-        : `<div class="bump">🔁 quiet 3 days? <button onclick="planBump(${j.id})">＋ schedule a bump</button></div>`)
+        : `<div class="bump">🔁 quiet 3 days? <button onclick="planBump(${j.id})">+ schedule a bump</button></div>`)
     : "";
   const clBlock = cl ? `<div class="cl">` + cl.map(i =>
     `<div class="clrow"><span class="clmark ${i.ok === true ? "y" : i.ok === false ? "n" : "u"}">${i.ok === true ? "✓" : i.ok === false ? "✗" : "?"}</span><b>${esc(i.label)}</b><span class="cld">${esc(i.detail)}</span></div>`

@@ -2,7 +2,7 @@
 
 FastAPI + your local SQLite. Every dashboard route is account-scoped:
 
-    /api/health                  liveness + version (no auth)
+    /api/health                  vitals: db, uptime, radar heartbeat (no auth)
     /api/auth/register|login|logout|me
     /api/state                   board, stats, calibration (auth)
     /api/stats                   funnel, per-source + per-method conversion (auth)
@@ -287,7 +287,62 @@ def fetch_all_for(user_id: int) -> list[dict]:
 
 
 # ------------------------------------------------------------------- poller
-_poller_state = {"running": False, "interval": 0}
+# Honest radar state: the "running" flag alone lies — a dead thread keeps it
+# true forever. So the radar records a heartbeat after every sweep, and
+# poller_health() reports what is actually alive, not what was promised.
+_poller_state: dict = {
+    "running": False,
+    "interval": 0,
+    "started_at": None,
+    "last_tick": None,
+    "last_error": None,
+    "sweeps": 0,
+    "thread": None,
+}
+
+STALL_FACTOR = 3  # no heartbeat for 3x the interval = the radar is stalled
+
+
+def _utcstamp() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def poller_health() -> dict:
+    """The radar's vital signs. thread_alive is the honest bit: the flag can
+    claim running while the thread is dead in a ditch — this reports both."""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    interval = max(POLL_FLOOR_MIN, int(_poller_state["interval"] or 0))
+    thread = _poller_state.get("thread")
+    alive = bool(thread and thread.is_alive())
+
+    def _age(raw: str | None) -> float | None:
+        if not raw:
+            return None
+        try:
+            t = datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+            return (now - t).total_seconds()
+        except ValueError:
+            return None
+
+    tick_age = _age(_poller_state.get("last_tick"))
+    started = _poller_state.get("started_at")
+    started_age = _age(started)
+    stalled = bool(
+        _poller_state["running"]
+        and (tick_age is None or tick_age > STALL_FACTOR * interval * 60)
+    )
+    return {
+        "running": bool(_poller_state["running"]),
+        "thread_alive": alive,
+        "interval_minutes": interval,
+        "started_at": started,
+        "last_tick": _poller_state.get("last_tick"),
+        "last_tick_age_s": int(tick_age) if tick_age is not None else None,
+        "stalled": stalled,
+        "sweeps": int(_poller_state["sweeps"] or 0),
+        "last_error": _poller_state.get("last_error"),
+        "uptime_s": int(started_age) if started_age is not None else 0,
+    }
 
 
 def _last_run_age_min(cfg: dict) -> float:
@@ -301,18 +356,29 @@ def _last_run_age_min(cfg: dict) -> float:
         return float("inf")
 
 
-def _poll_loop(stop: threading.Event, interval_min: int) -> None:
-    """Background radar: every enabled connector, politely spaced."""
-    first_delay = 45  # let the server finish booting before hunting
+def _poll_loop(
+    stop: threading.Event, interval_min: int, first_delay: float = 45
+) -> None:
+    """Background radar: every enabled connector, politely spaced. A sweep
+    crash must never kill the thread — the error is recorded and the next
+    sweep still happens, with a heartbeat after each round. first_delay lets
+    the server finish booting before the first hunt (tests shrink it)."""
     interval = max(POLL_FLOOR_MIN, int(interval_min))
+    _poller_state["started_at"] = _utcstamp()
     while not stop.wait(first_delay):
-        for uid, cid in db.enabled_connector_rows():
-            if stop.is_set():
-                return
-            cfg = db.connector_cfg(uid, cid)
-            if _last_run_age_min(cfg) < _connector_interval(cfg, interval):
-                continue
-            run_connector_for(uid, cid)
+        try:
+            for uid, cid in db.enabled_connector_rows():
+                if stop.is_set():
+                    return
+                cfg = db.connector_cfg(uid, cid)
+                if _last_run_age_min(cfg) < _connector_interval(cfg, interval):
+                    continue
+                run_connector_for(uid, cid)
+        except Exception as exc:  # defensive: db hiccups, shutdown races
+            _poller_state["last_error"] = f"{type(exc).__name__}: {exc}"[:300]
+        finally:
+            _poller_state["last_tick"] = _utcstamp()
+            _poller_state["sweeps"] = int(_poller_state["sweeps"]) + 1
 
 
 def _connector_interval(cfg: dict, fallback: int) -> int:
@@ -417,6 +483,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 target=_poll_loop, args=(stop_event, watch_cfg.interval_minutes),
                 daemon=True, name="lh-poller",
             )
+            _poller_state["thread"] = thread  # the truth check for poller_health
             thread.start()
             for uid in db.listen_enabled_rows():
                 cfg = db.notify_cfg(uid)
@@ -560,7 +627,22 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"ok": True, "version": __version__}
+        """Vitals, aggregate only (no auth, no per-user data): db reachable,
+        radar heartbeat, listener count. Honest on purpose — ok means it."""
+        vitals = poller_health()
+        db_ok = True
+        try:
+            db.users_count()
+        except Exception:
+            db_ok = False
+        return {
+            "ok": db_ok,
+            "version": __version__,
+            "db": db_ok,
+            "uptime_s": vitals["uptime_s"],
+            "poller": vitals,
+            "listeners": len(_listeners),
+        }
 
     @app.get("/api/radar")
     def radar(request: Request) -> dict:
@@ -569,9 +651,16 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         cfgs = db.connector_cfgs(user["id"])
         enabled = sum(1 for cfg in cfgs.values() if cfg.get("enabled"))
         n = db.notify_cfg(user["id"])
+        vitals = poller_health()
         return {
             "ok": True,
-            "running": _poller_state["running"],
+            "running": vitals["running"],
+            "thread_alive": vitals["thread_alive"],
+            "stalled": vitals["stalled"],
+            "last_tick": vitals["last_tick"],
+            "last_tick_age_s": vitals["last_tick_age_s"],
+            "sweeps": vitals["sweeps"],
+            "poller": vitals,
             "interval_minutes": _poller_state["interval"],
             "enabled_sources": enabled,
             "push": {

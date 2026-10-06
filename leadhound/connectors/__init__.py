@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..watchers import hn as _hn
 from ..watchers import rss as _rss
-from . import fiverr, freelancer, freelancer_account, reddit, rss_custom, upwork
+from . import fiverr, freelancer, freelancer_account, guru, pph, reddit, rss_custom, upwork
 from .base import Connector, Field
 
 
@@ -161,6 +161,30 @@ REGISTRY: dict[str, Connector] = {
                 ),
             ],
             fetch=fiverr.fetch,
+        ),
+        Connector(
+            id="guru",
+            min_poll=5,
+            label="Guru.com",
+            kind="public",
+            blurb=(
+                "Guru.com posted-jobs RSS. Their bot protection blocks some "
+                "datacenter IPs — self-hosted from your own machine usually "
+                "works, and you'll get an honest error if not."
+            ),
+            fetch=guru.fetch,
+        ),
+        Connector(
+            id="peopleperhour",
+            min_poll=5,
+            label="PeoplePerHour",
+            kind="public",
+            blurb=(
+                "PeoplePerHour projects RSS. Same honesty as Guru: if their "
+                "bot protection blocks your server's IP, the radar tells "
+                "you exactly that instead of going quiet."
+            ),
+            fetch=pph.fetch,
         ),
         Connector(
             id="rss",

@@ -30,6 +30,7 @@ import json
 import random
 import secrets
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -333,6 +334,102 @@ _poller_state: dict = {
 
 STALL_FACTOR = 3  # no heartbeat for 3x the interval = the radar is stalled
 
+# The watchdog: a supervisor that never sleeps on the job. If the poller
+# thread dies it is restarted with exponential backoff; dead pocket bots
+# are respawned from the db's own arm-state. The dashboard sees it all.
+_watchdog_state: dict = {
+    "running": False,
+    "restarts": 0,
+    "listener_restarts": 0,
+    "last_restart_at": None,
+    "last_reason": None,
+    "last_tick": None,
+    "last_error": None,
+    "thread": None,
+}
+_watchdog_cfg: dict = {"stop": None, "interval_min": 15, "deps_factory": None}
+_BACKOFF_CAP_S = 900  # never wait more than 15 min between restart tries
+
+
+def _backoff_delay(attempts: int) -> int:
+    """1, 2, 4, 8 … capped — a source that keeps dying gets space, not spam."""
+    return min(2 ** max(0, attempts), _BACKOFF_CAP_S)
+
+
+def _restart_poller() -> bool:
+    """True when a fresh radar thread was actually launched."""
+    stop = _watchdog_cfg.get("stop")
+    if not stop or stop.is_set():
+        return False
+    t = threading.Thread(
+        target=_poll_loop,
+        args=(stop, _watchdog_cfg["interval_min"]),
+        daemon=True, name="lh-poller",
+    )
+    _poller_state["thread"] = t
+    t.start()
+    return True
+
+
+def _respawn_dead_listeners() -> int:
+    """Re-arm pocket bots whose threads died; returns how many came back."""
+    factory = _watchdog_cfg.get("deps_factory")
+    if not factory:
+        return 0
+    n = 0
+    for uid in db.listen_enabled_rows():
+        slot = _listeners.get(uid)
+        if slot and slot["thread"].is_alive():
+            continue
+        if slot:
+            stop_pocket_listener(uid)  # clean up the corpse first
+        cfg = db.notify_cfg(uid)
+        if not (cfg.get("telegram_token") and cfg.get("telegram_chat_id")):
+            continue
+        try:
+            _bot, _thread = tgbot.spawn(
+                user_id=uid, token=cfg["telegram_token"],
+                chat_id=cfg["telegram_chat_id"], stop=threading.Event(),
+                deps=factory(uid),
+            )
+        except Exception:  # noqa: S112 — one dead bot must not block the rest
+            continue
+        _listeners[uid] = {"bot": _bot, "thread": _thread, "stop": threading.Event()}
+        n += 1
+    return n
+
+
+def _watch_loop(stop: threading.Event, period_s: float = 60) -> None:
+    """Supervisor beat: check the pack, restart the fallen, record honestly."""
+    _watchdog_state["running"] = True
+    attempts = 0
+    next_ok = 0.0
+    while not stop.wait(period_s):
+        try:
+            poller = _poller_state.get("thread")
+            if (
+                _poller_state["running"]
+                and _watchdog_cfg.get("stop")
+                and not _watchdog_cfg["stop"].is_set()
+                and not (poller and poller.is_alive())
+                and time.monotonic() >= next_ok
+            ):
+                if _restart_poller():
+                    _watchdog_state["restarts"] += 1
+                    _watchdog_state["last_restart_at"] = _utcstamp()
+                    _watchdog_state["last_reason"] = "poller thread died mid-hunt"
+                attempts += 1
+                next_ok = time.monotonic() + _backoff_delay(attempts)
+            revived = _respawn_dead_listeners()
+            if revived:
+                _watchdog_state["listener_restarts"] += revived
+                _watchdog_state["last_restart_at"] = _utcstamp()
+                _watchdog_state["last_reason"] = f"{revived} pocket bot(s) respawned"
+        except Exception as exc:  # the supervisor itself must not fall
+            _watchdog_state["last_error"] = f"{type(exc).__name__}: {exc}"[:200]
+        finally:
+            _watchdog_state["last_tick"] = _utcstamp()
+
 
 def _utcstamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
@@ -373,6 +470,9 @@ def poller_health() -> dict:
         "sweeps": int(_poller_state["sweeps"] or 0),
         "last_error": _poller_state.get("last_error"),
         "uptime_s": int(started_age) if started_age is not None else 0,
+        "watchdog": {
+            k: v for k, v in _watchdog_state.items() if k != "thread"
+        },
     }
 
 
@@ -555,6 +655,17 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             )
             _poller_state["thread"] = thread  # the truth check for poller_health
             thread.start()
+            _watchdog_cfg["stop"] = stop_event
+            _watchdog_cfg["interval_min"] = max(
+                POLL_FLOOR_MIN, int(watch_cfg.interval_minutes)
+            )
+            _watchdog_cfg["deps_factory"] = _listener_deps
+            watch_thread = threading.Thread(
+                target=_watch_loop, args=(stop_event,),
+                daemon=True, name="lh-watchdog",
+            )
+            _watchdog_state["thread"] = watch_thread
+            watch_thread.start()
             for uid in db.listen_enabled_rows():
                 cfg = db.notify_cfg(uid)
                 if not (cfg.get("telegram_token") and cfg.get("telegram_chat_id")):
@@ -571,6 +682,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 _listeners[uid] = {"bot": _bot, "thread": _thread, "stop": stop_evt}
         yield
         _poller_state["running"] = False
+        _watchdog_state["running"] = False
         stop_event.set()
         for uid in list(_listeners):
             stop_pocket_listener(uid)

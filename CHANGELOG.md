@@ -3,6 +3,18 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [1.0.0] - 2026-10-06
+
+The machine gun release. Detection latency collapsed from minutes to seconds (Freelancer webhooks), downtime stopped costing gigs (catch-up sweeps), dead threads stopped pretending to be alive (radar heartbeat + watchdog), and the cheap feeds learned to poll twice a minute without being rude (conditional GET + jitter). This is what "working" was supposed to mean.
+
+### Added
+- **📡 Freelancer webhook receiver** — `POST /webhook/freelancer` verifies the HMAC-SHA256 signature against the raw body (constant-time, every common signature header name, `sha256=` prefix tolerated) and flows the project straight into the shared ingest path: scored, drafted, pushed per user. Detection latency: seconds, not the next poll. Secrets live on the Freelancer source card (masked), one-click rotation via `POST /api/webhook/freelancer/rotate` (old secret dies instantly, new one shown exactly once), and the accounts hub gains the 📡 instant webhook card with live event counters. Honest door: 401 bad signature, 503 unarmed, 202 nothing to hunt, guid dedupe so webhook + poll never double-push.
+- **⏰ Downtime catch-up** — at boot, if the newest connector `last_run` is over an hour old, the poller's first sweep runs as a catch-up sweep: every new gig posted during the blackout lands flagged `late=1` (amber ⏰ late chip on the board), with timezone-aware posted-vs-reboot comparison and no re-flagging on re-ingest.
+- **💓 Radar heartbeat** — the poller records a heartbeat after every sweep (`last_tick`, `sweeps`, `started_at`); sweep crashes are recorded instead of killing the thread; `thread_alive` checks the actual thread, and `stalled` fires when no heartbeat arrives for 3× the interval. `/api/health` went from `{ok, version}` to real vitals (db, uptime, poller, listeners — aggregate only, nothing per-user).
+- **🐕 Watchdog supervisor** — a minute-beat supervisor relaunches a dead poller thread with exponential backoff (1s doubling, 15-min cap), respawns dead pocket bots from the db's own arm-state, never resurrects anything during shutdown, and reports every restart in the vitals' `watchdog` block.
+- **🤫 /ping heartbeat board** — one command answers all of ops: ✅ healthy source with cadence + last sweep age, 🟡 overdue (tick older than 2× cadence) or never swept, ❌ erroring with the reason inline, the radar thread's own pulse, and the webhook's armed state with rejected-signature warnings.
+- **⚡ Polite fast lane** — RemoteOK, Remotive, WeWorkRemotely, Hacker News and custom RSS poll on a 2-minute floor (was 5), paying their way with ETag/Last-Modified conditional GET (a 304 costs nothing). `Connector.min_poll` is the per-source politeness truth — keys, cookies and search APIs keep their 5-minute floor — and every sweep re-rolls ±20% jitter so a fleet of self-hosted hounds never stamps a source at the same second. The cadence endpoint clamps through the same floor function.
+
 ## [0.9.1] - 2026-10-06
 
 The routine release. v0.9.0 put the sniper in your pocket; v0.9.1 makes the daily grind disappear — the board adapts to daylight, installs to a phone home screen, rewrites your proposals, arms a whole niche in one click, and self-hosts in one container.

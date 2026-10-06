@@ -213,13 +213,14 @@ GET  /api/connectors                            all sources + per-account config
 POST /api/connectors/{id} · {id}/run            configure / fetch a source now
 POST /api/notify                                per-user push settings (Telegram)
 POST /api/notify/telegram/test                  fire a test message, surface Telegram's verdict
-POST /api/notify/cadence                        per-source poll cadence (5–120 min)
+POST /api/notify/cadence                        per-source poll cadence (floor 2 min for public feeds, 5 otherwise, ceiling 120)
 POST /api/notify/telegram/listen                arm / disarm the two-way pocket bot
+POST /api/webhook/freelancer/rotate             mint a fresh webhook signing secret (shown once)
 POST /api/fetch                                 fetch every enabled source now
-GET  /api/health                                liveness + version
+GET  /api/health                                vitals: db, uptime, radar heartbeat, listeners (no auth, aggregate only)
 ```
 
-Every board route is account-scoped, the radar re-runs each enabled connector on its **own cadence** (per-source, clamped 5–120 min) — and the pocket listener survives server restarts by re-arming on boot.
+Every board route is account-scoped, the radar re-runs each enabled connector on its **own cadence** (per-source, politeness floors: 2 min for cheap public feeds, 5 otherwise, ceiling 120) — and the pocket listener survives server restarts by re-arming on boot. A **watchdog supervisor** restarts dead poller/bot threads with exponential backoff, and Freelancer.com projects can arrive **instantly** via a signed webhook (`POST /webhook/freelancer`) instead of waiting for the next poll.
 
 ## 🛡️ ToS-safe by design
 
@@ -228,7 +229,7 @@ Platforms ban bots that log in, scrape logged-in pages, and auto-send. leadhound
 - ✅ Zero-config sources read **public** feeds/APIs only, with a polite `User-Agent`
 - ✅ **Upwork** uses the *official* OAuth2 API with keys from your own developer app — no scraping, ever
 - ✅ **Freelancer.com live-fire** bids go through their *official* API with **your own token** — placed only when **you** click 🎯 snipe, never in the background, bid id recorded on your board
-- ✅ Polls at **human-rate** intervals (default 15 min, hard floor 5)
+- ✅ Polls at **human-rate** intervals (default 15 min; hard floors: 2 min for cheap public feeds, 5 otherwise; conditional GET means unchanged feeds cost nothing) with ±20% jitter
 - ✅ Snipe-kit sends happen in **your own browser session** — leadhound prepares the ammo, you pull the trigger
 - ⚠️ The Fiverr (beta) connector reads buyer requests from **your own logged-in session cookie**, read-only, nothing auto-sent — it exists because Fiverr has no API. Use your judgment; if that's too spicy for you, skip that connector.
 - ❌ No background auto-bidding, no headless-browser scraping, no account automation
@@ -346,6 +347,7 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] **Starter packs (v0.9.1)** — one-click niche bundles (dev / design / marketing / support / product / firehose) on verified feed channels
 - [x] **Installable console (v0.9.1)** — PWA manifest + service worker, light/dark themes, saved filter views, ✨ improve-draft
 - [x] **One-container self-host (v0.9.1)** — `docker compose up`, gig history on a `/data` volume
+- [x] **The machine gun (v1.0.0)** — Freelancer webhook (seconds, not polls), downtime catch-up with ⏰ late flags, radar heartbeat + watchdog supervisor, 2-minute fast lane with conditional GET, /ping heartbeat board
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

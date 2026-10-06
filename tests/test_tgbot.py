@@ -4,6 +4,7 @@ Every test runs against a FakeBot transport — no network, ever."""
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -207,12 +208,53 @@ def test_unknown_command_and_garbage(seeded):
 # ------------------------------------------------------------------ /ping /digest
 def test_ping_reports_alive(seeded):
     deps = _deps(seeded, [])
-    deps["ping"] = lambda: tgbot.compose_ping(2, None)
+    deps["ping"] = lambda: tgbot.compose_ping(
+        [{"cid": "remoteok", "interval": 2, "last_run": None, "error": None}]
+    )
     b = _bot(seeded, deps)
     b._handle({"message": {"chat": {"id": 4242}, "text": "/ping"}})
     assert len(b.bot.sent) == 1
-    assert "alive" in b.bot.sent[0][1] and "armed" in b.bot.sent[0][1]
-    assert "last sweep never" in b.bot.sent[0][1]
+    text = b.bot.sent[0][1]
+    assert "radar" in text and "1 source(s) armed" in text
+    assert "🟡 remoteok" in text and "never swept yet" in text
+
+
+def test_compose_ping_heartbeat_board():
+    src = [
+        {"cid": "freelancer", "interval": 5,
+         "last_run": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), "error": None},
+        {"cid": "remoteok", "interval": 2,
+         "last_run": "2000-01-01 00:00:00", "error": None},   # ancient = overdue
+        {"cid": "fiverr", "interval": 15, "last_run": None,
+         "error": "cookie expired"},
+    ]
+    text = tgbot.compose_ping(
+        src,
+        radar={"running": True, "stalled": False, "sweeps": 12},
+        webhook={"armed": True, "last_signature_ok": True},
+    )
+    assert "✅ freelancer" in text and "radar thread alive · 12 sweep(s)" in text
+    assert "🟡 remoteok" in text and "overdue" in text
+    assert "❌ fiverr" in text and "cookie expired" in text
+    assert "📡 webhook armed" in text
+
+
+def test_compose_ping_flags_stalled_radar_and_rejected_signature():
+    text = tgbot.compose_ping(
+        [], radar={"running": True, "stalled": True, "last_tick_age_s": 9000}
+    )
+    assert "🚨 radar STALLED" in text and "9000s" in text
+    assert "no sources armed" in text
+    text2 = tgbot.compose_ping(
+        [{"cid": "freelancer", "interval": 5, "last_run": None, "error": None}],
+        webhook={"armed": True, "last_signature_ok": False},
+    )
+    assert "last signature rejected" in text2
+
+
+def test_compose_ping_idle_radar():
+    text = tgbot.compose_ping([], radar={"running": False})
+    assert "⚫ radar thread idle" in text
 
 
 def test_compose_digest_counts_and_ranks_top_gigs(seeded):

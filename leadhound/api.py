@@ -1343,11 +1343,32 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             return db.snipe_stats(user_id)
 
         def ping() -> str:
-            """Liveness + radar freshness in one line."""
+            """The heartbeat board: per-source tick ages, honest colors,
+            the radar's own pulse and the webhook's. Pocket-sized truth."""
             cfgs = db.connector_cfgs(user_id)
-            armed = sum(1 for c in cfgs.values() if c.get("enabled"))
-            last = max((c.get("last_run") or "" for c in cfgs.values()), default="")
-            return tgbot.compose_ping(armed, last or None)
+            sources = [
+                {
+                    "cid": cid,
+                    "interval": _connector_interval(
+                        cfg, _poller_state["interval"] or 15
+                    ),
+                    "last_run": cfg.get("last_run"),
+                    "error": cfg.get("last_error"),
+                }
+                for cid, cfg in cfgs.items()
+                if cfg.get("enabled")
+            ]
+            return tgbot.compose_ping(
+                sources,
+                radar=poller_health(),
+                webhook={
+                    "armed": bool(
+                        (db.connector_cfg(user_id, "freelancer")
+                         .get("settings") or {}).get("webhook_secret")
+                    ),
+                    "last_signature_ok": _hook_state["last_signature_ok"],
+                },
+            )
 
         def digest() -> str:
             """The whole board in one pocket-sized card."""

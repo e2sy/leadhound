@@ -26,6 +26,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import requests
 
@@ -103,10 +104,54 @@ def fmt_gig_card(j, draft: str) -> str:
     return head + tail
 
 
-def compose_ping(armed: int, last_run: str | None) -> str:
-    """Pure /ping text — the api layer feeds it db numbers."""
-    when = str(last_run or "never")[:16]
-    return f"🐺 alive — {armed} source(s) armed · last sweep {when}"
+def compose_ping(
+    sources: list[dict],
+    radar: dict | None = None,
+    webhook: dict | None = None,
+) -> str:
+    """Pure /ping text — the heartbeat board. The api layer feeds connector
+    rows + poller vitals; this only formats. No network, no db.
+    Each source: {cid, interval, last_run, error}."""
+    lines = [f"🐺 <b>radar</b> — {len(sources)} source(s) armed"]
+    if radar:
+        if radar.get("running") is False:
+            lines.append("⚫ radar thread idle (start with leadhound web)")
+        elif radar.get("stalled"):
+            age = radar.get("last_tick_age_s")
+            when = f"no heartbeat for {age}s" if age is not None else "no heartbeat yet"
+            lines.append(f"🚨 radar STALLED — {when}")
+        else:
+            lines.append(f"radar thread alive · {radar.get('sweeps') or 0} sweep(s) done")
+    for s in sources:
+        interval = s.get("interval")
+        when = _age_min(s.get("last_run"))
+        every = f"every {interval}m · " if interval else ""
+        ago = f"last sweep {when:.0f}m ago" if when is not None else "last sweep never"
+        mark, tail = "✅", ""
+        if s.get("error"):
+            mark, tail = "❌", f" · {str(s['error'])[:60]}"
+        elif when is None:
+            mark, tail = "🟡", " · never swept yet"
+        elif interval and when > 2 * interval:
+            mark, tail = "🟡", " · overdue"
+        lines.append(f"{mark} {s.get('cid')} — {every}{ago}{tail}")
+    if not sources:
+        lines.append("no sources armed — arm one in the accounts hub")
+    if webhook and webhook.get("armed"):
+        extra = " · last signature rejected" if webhook.get("last_signature_ok") is False else ""
+        lines.append(f"📡 webhook armed{extra}")
+    return "\n".join(lines)
+
+
+def _age_min(raw: str | None) -> float | None:
+    """Minutes since a sqlite-style utc stamp; None when unknown."""
+    if not raw:
+        return None
+    try:
+        t = datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.now(UTC).replace(tzinfo=None) - t).total_seconds() / 60
+    except ValueError:
+        return None
 
 
 def compose_digest(jobs: list, stats: dict) -> str:

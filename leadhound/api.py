@@ -43,7 +43,7 @@ from .config import TelegramConfig, load_config, load_profile
 from .connectors import freelancer_account as _fla
 from .connectors import freelancer_hook as _flhook
 from .connectors import upwork as _upwork
-from .engine import intel
+from .engine import intel, qualify
 from .engine.voice import draft_proposal, improve_draft
 from .notify import telegram as tg
 from .notify import tgbot
@@ -1107,6 +1107,23 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"ok": True, "variants": db.variants_for(job_id)}
+
+    @app.get("/api/jobs/{job_id}/checklist")
+    def job_checklist(job_id: int, request: Request) -> dict:
+        """The pre-flight read: six honest lines before you approve a gig."""
+        user = _user(request)
+        _own_job(user, job_id)
+        job = db.get_job(job_id)
+        if job is None:
+            raise HTTPException(404, "no such gig")
+        job_dict = {
+            "title": job.title, "source": job.source, "posted_at": job.posted_at,
+        }
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "items": qualify.checklist(job_dict, job.breakdown, load_profile()),
+        }
 
     # ---------------------------------------------------------- connectors
     @app.get("/api/connectors")

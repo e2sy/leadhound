@@ -105,6 +105,14 @@ PAGE = r"""<!DOCTYPE html>
 
   details.draft{margin-top:8px; border-top:1px dashed var(--line); padding-top:8px}
   details.draft summary{cursor:pointer; font-size:12.5px; color:var(--blue); user-select:none}
+  .cl{margin-top:8px; border-top:1px dashed var(--line); padding-top:8px; display:grid; gap:4px}
+  .clrow{display:flex; gap:7px; align-items:baseline; font-size:12.5px}
+  .clrow b{flex:0 0 auto; font-weight:600}
+  .cld{color:var(--dim); min-width:0}
+  .clmark{flex:0 0 14px; text-align:center; font-weight:700}
+  .clmark.y{color:var(--green)}
+  .clmark.n{color:#f85149}
+  .clmark.u{color:var(--amber)}
   textarea{width:100%; min-height:130px; margin-top:7px;
            font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; resize:vertical}
   .draftbtns{display:flex; gap:6px; margin-top:6px}
@@ -704,6 +712,16 @@ window.copyDraft = async id => {
   const text = (S.editing === id) ? S.draftVal : (j ? j.draft : "");
   try{ await navigator.clipboard.writeText(text || ""); toast("copied to clipboard ✓"); }
   catch(e){ toast("clipboard blocked — select & copy manually", true); }
+};
+
+window.showChecklist = async id => {
+  if(S.cl && S.cl[id]){ delete S.cl[id]; render(); return; }
+  const r = await fetch(`/api/jobs/${id}/checklist`);
+  if(r.status === 401){ boot(); return; }
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok || !d.ok){ toast(d.detail || "checklist failed", true); return; }
+  S.cl = S.cl || {}; S.cl[id] = d.items;
+  render();
 };
 
 window.fetchNow = async () => {
@@ -1350,6 +1368,10 @@ function card(j){
     ? `<span class="schip" style="border-color:var(--amber);color:var(--amber)" title="caught up after downtime — this gig dropped while leadhound was off">⏰ late</span>` : "";
   const open = S.editing === j.id;
   const hasB = (j.variants || []).some(v => v.label === "B");
+  const cl = (S.cl || {})[j.id];
+  const clBlock = cl ? `<div class="cl">` + cl.map(i =>
+    `<div class="clrow"><span class="clmark ${i.ok === true ? "y" : i.ok === false ? "n" : "u"}">${i.ok === true ? "✓" : i.ok === false ? "✗" : "?"}</span><b>${esc(i.label)}</b><span class="cld">${esc(i.detail)}</span></div>`
+  ).join("") + `</div>` : "";
 
   let acts = "";
   if(j.status === "pending")
@@ -1388,9 +1410,11 @@ function card(j){
     ${j.intel ? `<div class="intel">🔬 ${esc(j.intel)}</div>` : ""}
     ${j.body ? `<div class="prev">${esc(j.body)}</div>` : ""}
     ${j.budget_note ? `<div class="prev">${esc(j.budget_note)}</div>` : ""}
+    ${clBlock}
     <div class="acts">${acts}
       <button onclick="toggleDraft(${j.id})">✎ ${open ? "close" : "draft"}</button>
       <button onclick="copyDraft(${j.id})">⧉ copy</button>
+      ${(j.status === "pending" || j.status === "approved") ? `<button onclick="showChecklist(${j.id})" title="the pre-flight read before you approve">✓ check${cl ? "ing" : ""}</button>` : ""}
     </div>
     ${open ? `<div class="draftbox">
         <div class="dtabs">

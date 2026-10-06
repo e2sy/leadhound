@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..watchers import hn as _hn
 from ..watchers import rss as _rss
-from . import fiverr, freelancer, freelancer_account, rss_custom, upwork
+from . import fiverr, freelancer, freelancer_account, reddit, rss_custom, upwork
 from .base import Connector, Field
 
 
@@ -67,6 +67,26 @@ REGISTRY: dict[str, Connector] = {
             kind="public",
             blurb="The monthly 'Freelancer? Seeking freelancer?' thread.",
             fetch=_simple(_hn.fetch),
+        ),
+        Connector(
+            id="reddit",
+            min_poll=5,
+            label="Reddit [Hiring] posts",
+            kind="public",
+            blurb=(
+                "[Hiring] posts from freelance subreddits (r/forhire, r/hiring, "
+                "r/jobbit) via Reddit's public JSON — polite 5-minute cadence. "
+                "Edit the subreddit list to match your niche."
+            ),
+            fields=[
+                Field(
+                    "subreddits",
+                    "Subreddits (comma-separated)",
+                    placeholder="forhire,hiring,jobbit",
+                    hint="max 5 · only [Hiring] posts count, [For Hire] is skipped",
+                ),
+            ],
+            fetch=reddit.fetch,
         ),
         Connector(
             id="freelancer",

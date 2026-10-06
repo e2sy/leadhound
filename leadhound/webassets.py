@@ -1429,6 +1429,8 @@ function card(j){
     ? `<span class="schip" style="border-color:var(--amber);color:var(--amber)" title="caught up after downtime — this gig dropped while leadhound was off">⏰ late</span>` : "";
   const rankbadge = (j.status === "pending" && j.rank != null)
     ? `<span class="schip" style="border-color:var(--blue);color:var(--blue)" title="rank v2: score x freshness x source trust — the queue orders by this">⌖ ${j.rank}</span>` : "";
+  const dupbadge = (j.seen_count > 1)
+    ? `<span class="schip" title="the same gig spotted on: ${esc((j.also_on || []).join(", "))} — deduped, one gig">⧉ x${j.seen_count}${(j.also_on || []).length ? " · " + esc(j.also_on.join(", ")) : ""}</span>` : "";
   const open = S.editing === j.id;
   const hasB = (j.variants || []).some(v => v.label === "B");
   const cl = (S.cl || {})[j.id];
@@ -1483,7 +1485,7 @@ function card(j){
     <div class="row">
       <div class="ring" style="border-color:${ringColor(j.score)};color:${ringColor(j.score)}">${j.score}</div>
       <div style="min-width:0">
-        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}${latebadge}${rankbadge}</div>
+        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}${latebadge}${rankbadge}${dupbadge}</div>
         <div class="meta">
           <span class="chip blue">${esc(j.source)}</span>
           ${m ? `<span class="chip amber">$${esc(m).replace("$","")}</span>` : ""}

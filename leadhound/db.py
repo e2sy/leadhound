@@ -39,6 +39,9 @@ class Job:
     auto_rule: str | None = None
     late: int = 0
     quoted: float | None = None
+    dedup_key: str | None = None
+    seen_count: int = 1
+    also_on: str = ""
     user_id: int | None = None
 
     @property
@@ -131,6 +134,12 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN late INTEGER DEFAULT 0")
     if "quoted" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN quoted REAL")
+    if "dedup_key" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN dedup_key TEXT")
+    if "seen_count" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN seen_count INTEGER DEFAULT 1")
+    if "also_on" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN also_on TEXT DEFAULT ''")
 
 
 def _ensure_accounts(c: sqlite3.Connection) -> None:
@@ -709,6 +718,7 @@ def upsert_job(
     draft: str,
     user_id: int | None = None,
     late: bool = False,
+    dedup_key: str | None = None,
 ) -> tuple[int, bool]:
     """Insert a job if the guid is new. Returns (row_id, is_new).
     late=True flags gigs caught by the downtime catch-up sweep — they had
@@ -723,20 +733,65 @@ def upsert_job(
         """
         INSERT INTO jobs (guid, source, title, url, body, budget_min, budget_max,
                           hourly, tags, posted_at, score, score_json, draft, user_id,
-                          late)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          late, dedup_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job["guid"], job["source"], job["title"], job["url"], job.get("body", ""),
             job.get("budget_min"), job.get("budget_max"), job.get("hourly"),
             ",".join(job.get("tags", [])), job.get("posted_at"),
             score, json.dumps(score_json), draft, user_id, int(bool(late)),
+            dedup_key,
         ),
     )
     c.commit()
     rid = cur.lastrowid
     c.close()
     return rid, True
+
+
+def job_exists(guid: str) -> bool:
+    c = _conn()
+    row = c.execute("SELECT 1 FROM jobs WHERE guid = ?", (guid,)).fetchone()
+    c.close()
+    return row is not None
+
+
+def dedup_lookup(
+    user_id: int | None, key: str, *, days: int = 7
+) -> Job | None:
+    """Newest recent gig with the same fingerprint, in scope."""
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+    row = c.execute(
+        "SELECT * FROM jobs WHERE dedup_key = ? "
+        "AND fetched_at >= datetime('now', ?) "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) "
+        "ORDER BY id DESC LIMIT 1",
+        (key, f"-{int(days)} days", flag, uid),
+    ).fetchone()
+    c.close()
+    return Job(**dict(row)) if row else None
+
+
+def bump_seen(job_id: int, source: str) -> None:
+    """The same gig turned up again on another board (or the same one via
+    a different guid): count it and remember where, never re-notify."""
+    c = _conn()
+    row = c.execute("SELECT also_on, source FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if not row:
+        c.close()
+        return
+    places = {p.strip() for p in (row["also_on"] or "").split(",") if p.strip()}
+    places.discard(row["source"])
+    if source and source != row["source"]:
+        places.add(source)
+    c.execute(
+        "UPDATE jobs SET seen_count = seen_count + 1, also_on = ? WHERE id = ?",
+        (",".join(sorted(places)), job_id),
+    )
+    c.commit()
+    c.close()
 
 
 def _scope_params(user_id: int | None) -> tuple[int, int]:

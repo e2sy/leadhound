@@ -125,6 +125,8 @@ def job_to_dict(j: db.Job, variants: dict[int, list[dict]] | None = None) -> dic
         "auto_rule": j.auto_rule,
         "late": bool(j.late),
         "quoted": j.quoted,
+        "seen_count": j.seen_count or 1,
+        "also_on": [s for s in (j.also_on or "").split(",") if s],
         "variants": (variants or {}).get(j.id, []),
         "intel": intel.intel_for(j),
     }

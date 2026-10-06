@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from .config import EmailConfig, LLMConfig, Profile, TelegramConfig, WebhookConfig
+from .engine.fingerprint import fingerprint
 from .engine.scorer import score_job
 from .engine.voice import draft_proposal
 from .notify import email as em
@@ -30,6 +31,7 @@ class Ingested:
     is_new: bool
     notified: bool = field(default=False)
     auto_rule: str | None = field(default=None)
+    dup: bool = field(default=False)
 
 
 def _is_late(posted: str | None, before: str) -> bool:
@@ -79,6 +81,24 @@ def ingest_jobs(
 
     for job in jobs:
         score, breakdown = score_job(job, profile, memories)
+
+        # cross-source dedup: the same gig on five boards is one gig, seen
+        # five times. A second sighting bumps the original (seen_count,
+        # also_on) and never re-drafts or re-notifies.
+        key = fingerprint(job)
+        hit = None
+        if not db.job_exists(job["guid"]):
+            hit = db.dedup_lookup(user_id, key)
+        if hit is not None:
+            db.bump_seen(hit.id, job["source"])
+            results.append(
+                Ingested(
+                    rid=hit.id, job=job, score=hit.score, breakdown=hit.breakdown,
+                    draft=hit.draft, mode="", is_new=False, dup=True,
+                )
+            )
+            continue
+
         draft, mode = "", ""
         if score >= min_score:
             draft, mode = draft_proposal(
@@ -87,6 +107,7 @@ def ingest_jobs(
         rid, is_new = db.upsert_job(
             job, score, breakdown, draft, user_id=user_id,
             late=_is_late(job.get("posted_at"), late_before) if late_before else False,
+            dedup_key=key,
         )
         ing = Ingested(
             rid=rid, job=job, score=score, breakdown=breakdown,

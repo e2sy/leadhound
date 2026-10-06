@@ -350,6 +350,7 @@ Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`,
 - [x] **The machine gun (v1.0.0)** — Freelancer webhook (seconds, not polls), downtime catch-up with ⏰ late flags, radar heartbeat + watchdog supervisor, 2-minute fast lane with conditional GET, /ping heartbeat board
 - [x] **The learner (v1.1.0)** — win-memory (won/lost gigs nudge future lookalikes), price guard (EUR/GBP normalize, lowballs get named), ✅ qualification checklist, ⌖ queue ranking by urgency × source trust
 - [x] **The closer's copilot (v1.2.0)** — 🔁 follow-up bumps (human-gated), 🎤 interview kits (questions, money frame, red lines), 💼 money ledger (quoted vs banked, monthly)
+- [x] **The wide net (v1.3.0)** — Reddit [Hiring] posts, Guru.com + PeoplePerHour RSS (bot-wall errors told honestly), ⧉ cross-source dedup (one gig, five boards, single row)
 - [ ] Agency mode — monitor a bench of freelancer profiles
 
 Check the [open issues](https://github.com/e2sy/leadhound/issues) to grab something.

@@ -3,6 +3,15 @@
 All notable changes to leadhound are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/).
 
+## [1.3.0] - 2026-10-06
+
+The wide-net release. Three more sources joined the hunt, and the same gig stopped wearing five hats.
+
+### Added
+- **👽 Reddit connector** — [Hiring] posts from freelance subreddits (r/forhire, r/hiring, r/jobbit — editable list, max 5) via Reddit's public JSON with an honest descriptive User-Agent and a polite 5-minute floor. [For Hire] posts (other freelancers advertising) are skipped by design. Per-sub source tagging teaches the funnel which niche replies.
+- **🌐 Guru.com + PeoplePerHour connectors** — their public job RSS feeds through shared board-RSS plumbing. Honesty rule front and center: when bot protection serves an HTML wall instead of XML, the radar reports exactly that ("blocked this server's IP — self-hosting from a residential machine usually fixes it") instead of going quiet.
+- **⧉ Cross-source dedup** — fingerprint = normalized title × money bucket, hashed. A second sighting on another board bumps `seen_count` and remembers the board (`also_on`) instead of inserting a clone or re-notifying your pocket. GUID refetches never count as sightings; account scoping respected; the board shows a ⧉ chip when a gig is a confirmed multi-board listing.
+
 ## [1.2.0] - 2026-10-06
 
 The closer's copilot release. The chase stopped being manual: quiet threads get one honest nudge (human-gated), interviews get a prepared kit instead of hope, and the money finally has a ledger.

@@ -749,6 +749,15 @@ window.cancelBump = async (id, fid) => {
   if(d) load();
 };
 
+window.setQuote = async id => {
+  const v = prompt("what did you quote on this gig? (USD)");
+  if(v === null) return;
+  const n = parseFloat(v);
+  if(isNaN(n) || n < 0){ toast("that's not an amount", true); return; }
+  const d = await post(`/api/jobs/${id}/quote`, {amount: n}, "💼 quote recorded");
+  if(d) load();
+};
+
 window.showKit = async id => {
   if(S.kit && S.kit[id]){ delete S.kit[id]; render(); return; }
   const r = await fetch(`/api/jobs/${id}/kit`);
@@ -963,6 +972,8 @@ async function loadStats(){
     if(r.status === 401){ boot(); return; }
     if(!r.ok) throw new Error("http " + r.status);
     S.stats = await r.json();
+    const rm = await fetch("/api/money");
+    if(rm.ok){ const dm = await rm.json(); S.money = dm.ledger || null; }
     renderStats();
   }catch(e){
     const b = $("#statsBody");
@@ -1014,6 +1025,20 @@ function renderStats(){
     </div>` : "";
   const calBits = Object.entries(cal).filter(([k]) => k !== "hint").map(([k, v]) =>
     `<span class="chip">${esc(k)}: ${v.n} (avg ${v.avg_score})</span>`).join(" ");
+  const L = S.money;
+  const maxMonth = L ? Math.max(1, ...(L.monthly || []).map(m => m.v || 0)) : 1;
+  const moneyPanel = L ? `
+    <div class="spanel">
+      <h3>money ledger</h3>
+      <div class="sline">in play: <b>${money0(L.inplay_value)}</b> (${L.inplay_n} gig(s)) · banked: <b>${money0(L.won_value)}</b> (${L.won_n} win(s)${L.avg_won ? " · avg " + money0(L.avg_won) : ""})</div>
+      ${(L.monthly || []).length ? L.monthly.map(m => `
+        <div class="brow">
+          <span class="bl">${esc(m.m)}</span>
+          <span class="btrack"><span class="bfill g" style="width:${Math.round(100*(m.v||0)/maxMonth)}%"></span></span>
+          <span class="bn">${money0(m.v)} · ${m.n} win(s)</span>
+        </div>`).join("") : `<div class="sline">no wins yet — the bars start when the money lands.</div>`}
+      <div class="sline">${esc(L.hint || "values prefer YOUR quoted number; posted budgets are the fallback.")}</div>
+    </div>` : "";
   const body = $("#statsBody");
   if(!body) return;
   body.innerHTML = `
@@ -1025,6 +1050,7 @@ function renderStats(){
       ${srcRows}
       <div class="sline">bar = share of your shots · % = reply rate. feed the green rows, prune the dead ones.</div>
     </div>
+    ${moneyPanel}
     <div class="spanel">
       <h3>live-fire vs kit</h3>
       <div class="sline">🔥 <b>live-fire bids</b> — official Freelancer.com API, real bids on your account</div>
@@ -1408,12 +1434,17 @@ function card(j){
   const cl = (S.cl || {})[j.id];
   const fu = j.followup;
   const fuDue = fu && fu.due_at && new Date(String(fu.due_at).replace(" ", "T") + "Z") <= new Date();
+  const qchip = (j.quoted != null)
+    ? ` <span class="schip" style="border-color:var(--green);color:var(--green)" title="what you quoted">💼 $${Number(j.quoted).toLocaleString("en-US")}</span>` : "";
   const bumpLine = j.status === "sent"
     ? (fu
         ? `<div class="bump">🔁 follow-up ${fuDue ? "<b>due now</b>" : "scheduled " + esc(String(fu.due_at).slice(0, 10))}
             <button onclick="fireBump(${j.id},${fu.id})">copy &amp; send</button>
             <button onclick="cancelBump(${j.id},${fu.id})" title="cancel this bump">✕</button></div>`
         : `<div class="bump">🔁 quiet 3 days? <button onclick="planBump(${j.id})">+ schedule a bump</button></div>`)
+    : "";
+  const quoteLine = j.status === "sent"
+    ? `<div class="bump">💼 ${qchip || "no quote set"} <button onclick="setQuote(${j.id})">set quoted amount</button></div>`
     : "";
   const clBlock = cl ? `<div class="cl">` + cl.map(i =>
     `<div class="clrow"><span class="clmark ${i.ok === true ? "y" : i.ok === false ? "n" : "u"}">${i.ok === true ? "✓" : i.ok === false ? "✗" : "?"}</span><b>${esc(i.label)}</b><span class="cld">${esc(i.detail)}</span></div>`
@@ -1467,6 +1498,7 @@ function card(j){
     ${clBlock}
     ${kitBlock}
     ${bumpLine}
+    ${quoteLine}
     <div class="acts">${acts}
       <button onclick="toggleDraft(${j.id})">✎ ${open ? "close" : "draft"}</button>
       <button onclick="copyDraft(${j.id})">⧉ copy</button>

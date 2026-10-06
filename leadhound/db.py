@@ -38,6 +38,7 @@ class Job:
     sent_variant: str | None = None
     auto_rule: str | None = None
     late: int = 0
+    quoted: float | None = None
     user_id: int | None = None
 
     @property
@@ -128,6 +129,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN auto_rule TEXT")
     if "late" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN late INTEGER DEFAULT 0")
+    if "quoted" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN quoted REAL")
 
 
 def _ensure_accounts(c: sqlite3.Connection) -> None:
@@ -908,6 +911,76 @@ def save_interview_kit(job_id: int, kit: dict) -> None:
     )
     c.commit()
     c.close()
+
+
+def set_quote(job_id: int, amount: float) -> None:
+    """Record what YOU quoted on this gig (the real money signal)."""
+    if amount is None or amount < 0:
+        raise ValueError("quote must be a non-negative amount")
+    c = _conn()
+    c.execute("UPDATE jobs SET quoted = ? WHERE id = ?", (float(amount), job_id))
+    c.commit()
+    c.close()
+
+
+def ledger(user_id: int | None = None) -> dict:
+    """The money ledger: what you asked for vs what you actually banked.
+
+    Every value prefers your QUOTED number and falls back to the gig's
+    posted budget — an honest estimate either way, labeled as such."""
+    c = _conn()
+    flag, uid = _scope_params(user_id)
+    args = (flag, uid)
+
+    row = c.execute(
+        "SELECT COUNT(*), COALESCE(SUM(COALESCE(quoted, budget_max)), 0) "
+        "FROM jobs WHERE status = 'sent' AND outcome IS NULL "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        args,
+    ).fetchone()
+    inplay_n, inplay_v = int(row[0]), float(row[1] or 0)
+
+    row = c.execute(
+        "SELECT COUNT(*), COALESCE(SUM(COALESCE(quoted, budget_max)), 0), "
+        "COALESCE(AVG(COALESCE(quoted, budget_max)), 0) "
+        "FROM jobs WHERE outcome = 'won' "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+        args,
+    ).fetchone()
+    won_n, won_v, avg_won = int(row[0]), float(row[1] or 0), float(row[2] or 0)
+
+    monthly = c.execute(
+        "SELECT strftime('%Y-%m', outcome_at) AS m, "
+        "COALESCE(SUM(COALESCE(quoted, budget_max)), 0) AS v, COUNT(*) AS n "
+        "FROM jobs WHERE outcome = 'won' AND outcome_at IS NOT NULL "
+        "AND outcome_at >= datetime('now', '-6 months') "
+        "AND (? = 0 OR user_id IS NULL OR user_id = ?) "
+        "GROUP BY m ORDER BY m DESC",
+        args,
+    ).fetchall()
+    quoted_n = int(
+        c.execute(
+            "SELECT COUNT(*) FROM jobs WHERE quoted IS NOT NULL "
+            "AND (? = 0 OR user_id IS NULL OR user_id = ?)",
+            args,
+        ).fetchone()[0]
+    )
+    c.close()
+    return {
+        "inplay_n": inplay_n,
+        "inplay_value": round(inplay_v, 2),
+        "won_n": won_n,
+        "won_value": round(won_v, 2),
+        "avg_won": round(avg_won, 2),
+        "quotes_set": quoted_n,
+        "monthly": [dict(r) for r in monthly],
+        "hint": (
+            "set quotes on sent gigs to sharpen every number here — "
+            "posted budgets are the fallback"
+        )
+        if quoted_n == 0 and won_n
+        else "",
+    }
 
 
 def interview_kit(job_id: int) -> dict | None:

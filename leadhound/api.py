@@ -124,6 +124,7 @@ def job_to_dict(j: db.Job, variants: dict[int, list[dict]] | None = None) -> dic
         "sent_variant": j.sent_variant,
         "auto_rule": j.auto_rule,
         "late": bool(j.late),
+        "quoted": j.quoted,
         "variants": (variants or {}).get(j.id, []),
         "intel": intel.intel_for(j),
     }
@@ -648,6 +649,10 @@ class ImproveBody(BaseModel):
 
 class FollowupBody(BaseModel):
     days: int = 3
+
+
+class QuoteBody(BaseModel):
+    amount: float
 
 
 class ListenBody(BaseModel):
@@ -1224,6 +1229,24 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         db.save_interview_kit(job_id, kit)
         return {"ok": True, "job_id": job_id, "kit": kit}
 
+    # ---------------------------------------------------------- money ledger
+    @app.post("/api/jobs/{job_id}/quote")
+    def quote(job_id: int, body: QuoteBody, request: Request) -> dict:
+        """What YOU asked for — the real number behind the ledger."""
+        user = _user(request)
+        _own_job(user, job_id)
+        try:
+            db.set_quote(job_id, body.amount)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "job_id": job_id, "quoted": body.amount}
+
+    @app.get("/api/money")
+    def money(request: Request) -> dict:
+        """The ledger: quoted pipeline, banked wins, monthly rollup."""
+        user = _user(request)
+        return {"ok": True, "ledger": db.ledger(user["id"])}
+
     @app.post("/api/jobs/{job_id}/followup")
     def schedule_bump(job_id: int, body: FollowupBody, request: Request) -> dict:
         user = _user(request)
@@ -1469,6 +1492,22 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 db.save_interview_kit(jid, k)
             return interview.format_kit(k)
 
+        def money() -> str:
+            led = db.ledger(user_id)
+            def m0(v: float) -> str:
+                return f"${v:,.0f}"
+            lines = [
+                "💰 <b>money ledger</b>",
+                f"in play: {m0(led['inplay_value'])} across {led['inplay_n']} gig(s)",
+                f"banked: {m0(led['won_value'])} from {led['won_n']} win(s)"
+                + (f" · avg {m0(led['avg_won'])}" if led["won_n"] else ""),
+            ]
+            for m in led["monthly"][:3]:
+                lines.append(f"  {m['m']}: {m0(m['v'])} ({m['n']})")
+            if led["hint"]:
+                lines.append(led["hint"])
+            return "\n".join(lines)
+
         def approve(jid: int) -> str:
             job = _own(jid)
             if not job:
@@ -1563,7 +1602,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         return {"queue": queue, "gig": gig, "approve": approve,
                 "plan": plan, "fire": fire, "stats": stats,
                 "ping": ping, "digest": digest, "followups": followups,
-                "kit": kit}
+                "kit": kit, "money": money}
 
     @app.post("/api/notify/telegram/listen")
     def listen_toggle(body: ListenBody, request: Request) -> dict:

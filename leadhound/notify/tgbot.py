@@ -320,6 +320,9 @@ class PocketBot:
                 return "usage: /kit <gig id>", None
             text = fn(int(args[0])) if args[0].isdigit() else None
             return (text or f"no gig #{args[0]} on your board"), None
+        if cmd == "money":
+            fn = self.deps.get("money")
+            return (str(fn()) if fn else "the ledger lives on the board"), None
         return (
             "unknown command — /help lists the arsenal", None
         )
@@ -335,6 +338,7 @@ class PocketBot:
             "/digest — board summary + the three best gigs\n"
             "/followups — which sent gigs are due a bump\n"
             "/kit <id> — interview prep: questions, money frame\n"
+            "/money — pipeline, banked, monthly rollup\n"
             "/ping — is the radar alive?\n"
             "/help — this card"
         ).replace("&lt;", "<").replace("&gt;", ">")

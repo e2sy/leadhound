@@ -1305,6 +1305,8 @@ function card(j){
       ? `<span class="schip" title="${esc(j.snipe_note || "")}">🎯 kit${vtag}</span>` : "";
   const abadge = j.auto_rule
     ? `<span class="schip" style="border-color:var(--green);color:var(--green)" title="auto-approved by rule: ${esc(j.auto_rule)}">⚡ auto</span>` : "";
+  const latebadge = j.late
+    ? `<span class="schip" style="border-color:var(--amber);color:var(--amber)" title="caught up after downtime — this gig dropped while leadhound was off">⏰ late</span>` : "";
   const open = S.editing === j.id;
   const hasB = (j.variants || []).some(v => v.label === "B");
 
@@ -1333,7 +1335,7 @@ function card(j){
     <div class="row">
       <div class="ring" style="border-color:${ringColor(j.score)};color:${ringColor(j.score)}">${j.score}</div>
       <div style="min-width:0">
-        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}</div>
+        <div class="ttl"><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a> ${ob}${sbadge}${abadge}${latebadge}</div>
         <div class="meta">
           <span class="chip blue">${esc(j.source)}</span>
           ${m ? `<span class="chip amber">$${esc(m).replace("$","")}</span>` : ""}

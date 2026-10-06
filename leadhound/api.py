@@ -50,10 +50,15 @@ from .webassets import ICON_SVG, MANIFEST, PAGE, SW_JS
 _MAX_PREVIEW = 400
 _MASK = "•••"  # sentinel returned instead of stored secrets
 POLL_FLOOR_MIN = 5
+CATCHUP_GAP_MIN = 60  # last run older than this at boot = a real downtime
 
 # pocket listeners: user_id -> {bot, thread, stop} — one bot per account
 _listeners: dict[int, dict] = {}
 _LISTENER_CAP = 8
+
+# downtime catch-up: armed at boot when the last sweep is old, consumed by
+# the poller's FIRST sweep only — gigs posted before the reboot are 'late'.
+_catchup: dict = {"pending": False, "late_before": None}
 
 
 def stop_pocket_listener(user_id: int) -> None:
@@ -105,6 +110,7 @@ def job_to_dict(j: db.Job, variants: dict[int, list[dict]] | None = None) -> dic
         "snipe_note": j.snipe_note,
         "sent_variant": j.sent_variant,
         "auto_rule": j.auto_rule,
+        "late": bool(j.late),
         "variants": (variants or {}).get(j.id, []),
         "intel": intel.intel_for(j),
     }
@@ -224,8 +230,11 @@ def _connector_payload(user_id: int) -> list[dict]:
 _fetch_lock = threading.Lock()
 
 
-def run_connector_for(user_id: int, cid: str, *, wait: bool = True) -> dict:
-    """Fetch one source for one account, ingest, record the outcome honestly."""
+def run_connector_for(
+    user_id: int, cid: str, *, wait: bool = True, late_before: str | None = None
+) -> dict:
+    """Fetch one source for one account, ingest, record the outcome honestly.
+    late_before marks a downtime catch-up sweep (see pipeline.ingest_jobs)."""
     conn = connectors.get(cid)
     if conn is None:
         return {"connector": cid, "error": "unknown connector"}
@@ -264,6 +273,7 @@ def run_connector_for(user_id: int, cid: str, *, wait: bool = True) -> dict:
             wh_cfg=wh_cfg,
             em_cfg=em_cfg,
             user_id=user_id,
+            late_before=late_before,
         )
         new = sum(1 for r in results if r.is_new)
         if updated:
@@ -345,6 +355,17 @@ def poller_health() -> dict:
     }
 
 
+def _utc_age_min(raw: str | None) -> float:
+    """Minutes since a '%Y-%m-%d %H:%M:%S' utc stamp; inf when unknown."""
+    if not raw:
+        return float("inf")
+    try:
+        t = datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.now(UTC).replace(tzinfo=None) - t).total_seconds() / 60
+    except ValueError:
+        return float("inf")
+
+
 def _last_run_age_min(cfg: dict) -> float:
     raw = cfg.get("last_run")
     if not raw:
@@ -365,7 +386,11 @@ def _poll_loop(
     the server finish booting before the first hunt (tests shrink it)."""
     interval = max(POLL_FLOOR_MIN, int(interval_min))
     _poller_state["started_at"] = _utcstamp()
+    first_sweep = True
     while not stop.wait(first_delay):
+        late_before = None
+        if first_sweep and _catchup["pending"]:
+            late_before = _catchup["late_before"]
         try:
             for uid, cid in db.enabled_connector_rows():
                 if stop.is_set():
@@ -373,12 +398,14 @@ def _poll_loop(
                 cfg = db.connector_cfg(uid, cid)
                 if _last_run_age_min(cfg) < _connector_interval(cfg, interval):
                     continue
-                run_connector_for(uid, cid)
+                run_connector_for(uid, cid, late_before=late_before)
         except Exception as exc:  # defensive: db hiccups, shutdown races
             _poller_state["last_error"] = f"{type(exc).__name__}: {exc}"[:300]
         finally:
             _poller_state["last_tick"] = _utcstamp()
             _poller_state["sweeps"] = int(_poller_state["sweeps"]) + 1
+            first_sweep = False
+            _catchup["pending"] = False  # one catch-up sweep, then routine
 
 
 def _connector_interval(cfg: dict, fallback: int) -> int:
@@ -479,6 +506,11 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             _poller_state["interval"] = max(
                 POLL_FLOOR_MIN, int(watch_cfg.interval_minutes)
             )
+            latest = db.latest_connector_run()
+            if latest and _utc_age_min(latest) > CATCHUP_GAP_MIN:
+                # the hound slept through a window: first sweep catches up
+                _catchup["pending"] = True
+                _catchup["late_before"] = _utcstamp()
             thread = threading.Thread(
                 target=_poll_loop, args=(stop_event, watch_cfg.interval_minutes),
                 daemon=True, name="lh-poller",
@@ -663,6 +695,10 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             "poller": vitals,
             "interval_minutes": _poller_state["interval"],
             "enabled_sources": enabled,
+            "catchup": {
+                "pending": bool(_catchup["pending"]),
+                "late_before": _catchup["late_before"],
+            },
             "push": {
                 "telegram_enabled": bool(n.get("telegram_enabled")),
                 "listen_enabled": bool(n.get("listen_enabled")),

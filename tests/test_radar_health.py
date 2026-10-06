@@ -112,7 +112,7 @@ def test_poll_loop_survives_sweep_crashes(clean_state, monkeypatch):
 
     calls = {"n": 0}
 
-    def boom(uid, cid):
+    def boom(uid, cid, *, late_before=None):
         calls["n"] += 1
         raise RuntimeError("db vanished mid-sweep")
 

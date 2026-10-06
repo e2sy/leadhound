@@ -37,6 +37,7 @@ class Job:
     snipe_note: str | None = None
     sent_variant: str | None = None
     auto_rule: str | None = None
+    late: int = 0
     user_id: int | None = None
 
     @property
@@ -125,6 +126,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE jobs ADD COLUMN sent_variant TEXT")
     if "auto_rule" not in cols:
         c.execute("ALTER TABLE jobs ADD COLUMN auto_rule TEXT")
+    if "late" not in cols:
+        c.execute("ALTER TABLE jobs ADD COLUMN late INTEGER DEFAULT 0")
 
 
 def _ensure_accounts(c: sqlite3.Connection) -> None:
@@ -385,6 +388,15 @@ def enabled_connector_rows() -> list[tuple[int, str]]:
     return [(r["user_id"], r["connector_id"]) for r in rows]
 
 
+def latest_connector_run() -> str | None:
+    """Newest last_run across all connector rows — the downtime detector's
+    anchor: if this is old at boot, the hound slept through a window."""
+    c = _conn()
+    row = c.execute("SELECT MAX(last_run) AS m FROM connector_config").fetchone()
+    c.close()
+    return row["m"] if row and row["m"] else None
+
+
 def listen_enabled_rows() -> list[int]:
     """Accounts whose pocket listener should be armed when the server boots."""
     c = _conn()
@@ -629,9 +641,16 @@ def mark_auto_armed(job_id: int, rule_name: str) -> None:
 
 
 def upsert_job(
-    job: dict, score: int, score_json: dict, draft: str, user_id: int | None = None
+    job: dict,
+    score: int,
+    score_json: dict,
+    draft: str,
+    user_id: int | None = None,
+    late: bool = False,
 ) -> tuple[int, bool]:
-    """Insert a job if the guid is new. Returns (row_id, is_new)."""
+    """Insert a job if the guid is new. Returns (row_id, is_new).
+    late=True flags gigs caught by the downtime catch-up sweep — they had
+    already dropped while the hound was asleep, so the window was tight."""
     c = _conn()
     cur = c.execute("SELECT id, status FROM jobs WHERE guid = ?", (job["guid"],))
     row = cur.fetchone()
@@ -641,14 +660,15 @@ def upsert_job(
     cur = c.execute(
         """
         INSERT INTO jobs (guid, source, title, url, body, budget_min, budget_max,
-                          hourly, tags, posted_at, score, score_json, draft, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          hourly, tags, posted_at, score, score_json, draft, user_id,
+                          late)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job["guid"], job["source"], job["title"], job["url"], job.get("body", ""),
             job.get("budget_min"), job.get("budget_max"), job.get("hourly"),
             ",".join(job.get("tags", [])), job.get("posted_at"),
-            score, json.dumps(score_json), draft, user_id,
+            score, json.dumps(score_json), draft, user_id, int(bool(late)),
         ),
     )
     c.commit()

@@ -7,7 +7,9 @@ email) are passed in as configs; nothing here prints or touches the console.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from .config import EmailConfig, LLMConfig, Profile, TelegramConfig, WebhookConfig
 from .engine.scorer import score_job
@@ -30,6 +32,22 @@ class Ingested:
     auto_rule: str | None = field(default=None)
 
 
+def _is_late(posted: str | None, before: str) -> bool:
+    """True when the gig was posted before the downtime window closed.
+    Formats differ across sources (ISO with tz, naive, sqlite-style), so
+    parse both — string comparison would lie ('T' > ' ' at position 10)."""
+    if not posted:
+        return False
+    with contextlib.suppress(Exception):
+        t = datetime.fromisoformat(str(posted))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=UTC)
+        b = datetime.fromisoformat(str(before))
+        b = b.replace(tzinfo=UTC) if b.tzinfo is None else b
+        return t < b
+    return False
+
+
 def ingest_jobs(
     jobs: list[dict],
     *,
@@ -41,12 +59,16 @@ def ingest_jobs(
     wh_cfg: WebhookConfig | None = None,
     em_cfg: EmailConfig | None = None,
     user_id: int | None = None,
+    late_before: str | None = None,
 ) -> list[Ingested]:
     """Run every job through the scope. Returns per-job results.
 
     tg_min_score raises the bar for Telegram pushes specifically (0 = push
     everything that made the board), so the pocket stays quiet until a gig
-    is actually worth the buzz."""
+    is actually worth the buzz.
+
+    late_before (optional) marks the catch-up sweep: gigs posted before
+    that moment were missed while the server was down — flagged, not lost."""
     from . import db  # local import: db imports config, avoids cycles
 
     results: list[Ingested] = []
@@ -61,7 +83,10 @@ def ingest_jobs(
             draft, mode = draft_proposal(
                 job, profile, llm_cfg, breakdown["skills"]["matched"]
             )
-        rid, is_new = db.upsert_job(job, score, breakdown, draft, user_id=user_id)
+        rid, is_new = db.upsert_job(
+            job, score, breakdown, draft, user_id=user_id,
+            late=_is_late(job.get("posted_at"), late_before) if late_before else False,
+        )
         ing = Ingested(
             rid=rid, job=job, score=score, breakdown=breakdown,
             draft=draft, mode=mode, is_new=is_new,

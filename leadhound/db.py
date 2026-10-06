@@ -226,6 +226,15 @@ def _ensure_accounts(c: sqlite3.Connection) -> None:
         """
     )
     c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS interview_kits (
+            job_id INTEGER PRIMARY KEY,
+            kit_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
+    c.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id)"
     )
     c.execute(
@@ -887,6 +896,32 @@ def followups_map(user_id: int | None) -> dict[int, dict]:
     ).fetchall()
     c.close()
     return {r["job_id"]: dict(r) for r in rows}
+
+
+# ---------------------------------------------------------- interview kits
+
+def save_interview_kit(job_id: int, kit: dict) -> None:
+    c = _conn()
+    c.execute(
+        "INSERT OR REPLACE INTO interview_kits (job_id, kit_json) VALUES (?, ?)",
+        (job_id, json.dumps(kit)),
+    )
+    c.commit()
+    c.close()
+
+
+def interview_kit(job_id: int) -> dict | None:
+    c = _conn()
+    row = c.execute(
+        "SELECT kit_json FROM interview_kits WHERE job_id = ?", (job_id,)
+    ).fetchone()
+    c.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row["kit_json"])
+    except json.JSONDecodeError:
+        return None
 
 
 # ------------------------------------------------------------------- variants

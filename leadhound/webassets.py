@@ -749,6 +749,16 @@ window.cancelBump = async (id, fid) => {
   if(d) load();
 };
 
+window.showKit = async id => {
+  if(S.kit && S.kit[id]){ delete S.kit[id]; render(); return; }
+  const r = await fetch(`/api/jobs/${id}/kit`);
+  if(r.status === 401){ boot(); return; }
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok || !d.ok){ toast(d.detail || "kit failed", true); return; }
+  S.kit = S.kit || {}; S.kit[id] = d.kit;
+  render();
+};
+
 window.fetchNow = async () => {
   toast("fetching your sources…");
   const d = await post("/api/fetch", {}, null);
@@ -1408,6 +1418,14 @@ function card(j){
   const clBlock = cl ? `<div class="cl">` + cl.map(i =>
     `<div class="clrow"><span class="clmark ${i.ok === true ? "y" : i.ok === false ? "n" : "u"}">${i.ok === true ? "✓" : i.ok === false ? "✗" : "?"}</span><b>${esc(i.label)}</b><span class="cld">${esc(i.detail)}</span></div>`
   ).join("") + `</div>` : "";
+  const kit = (S.kit || {})[j.id];
+  const kitBlock = kit ? `<div class="cl">
+    <div class="clrow"><b>🎤 ${esc(kit.title)}</b></div>
+    ${kit.questions.map(q => `<div class="clrow"><span class="clmark u">?</span><span class="cld">${esc(q)}</span></div>`).join("")}
+    <div class="clrow"><span class="clmark ${"y"}">$</span><span class="cld">${esc(kit.money.note)}</span></div>
+    ${kit.talking_points.map(p => `<div class="clrow"><span class="clmark y">•</span><span class="cld">${esc(p)}</span></div>`).join("")}
+    ${kit.red_lines.map(r => `<div class="clrow"><span class="clmark n">✗</span><span class="cld">${esc(r)}</span></div>`).join("")}
+  </div>` : "";
 
   let acts = "";
   if(j.status === "pending")
@@ -1447,11 +1465,13 @@ function card(j){
     ${j.body ? `<div class="prev">${esc(j.body)}</div>` : ""}
     ${j.budget_note ? `<div class="prev">${esc(j.budget_note)}</div>` : ""}
     ${clBlock}
+    ${kitBlock}
     ${bumpLine}
     <div class="acts">${acts}
       <button onclick="toggleDraft(${j.id})">✎ ${open ? "close" : "draft"}</button>
       <button onclick="copyDraft(${j.id})">⧉ copy</button>
       ${(j.status === "pending" || j.status === "approved") ? `<button onclick="showChecklist(${j.id})" title="the pre-flight read before you approve">✓ check${cl ? "ing" : ""}</button>` : ""}
+      ${j.status === "sent" ? `<button onclick="showKit(${j.id})" title="questions, money frame, talking points, red lines">🎤 kit</button>` : ""}
     </div>
     ${open ? `<div class="draftbox">
         <div class="dtabs">

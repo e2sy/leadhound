@@ -43,7 +43,7 @@ from .config import TelegramConfig, load_config, load_profile
 from .connectors import freelancer_account as _fla
 from .connectors import freelancer_hook as _flhook
 from .connectors import upwork as _upwork
-from .engine import intel, qualify, rank
+from .engine import intel, interview, qualify, rank
 from .engine.voice import draft_proposal, followup_draft, improve_draft
 from .notify import telegram as tg
 from .notify import tgbot
@@ -1183,6 +1183,47 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             "scheduled": db.followups_for(uid),
         }
 
+    @app.get("/api/jobs/{job_id}/kit")
+    def get_kit(job_id: int, request: Request) -> dict:
+        """The interview kit: questions, money frame, talking points,
+        red lines — generated from the gig + your profile, cached."""
+        user = _user(request)
+        _own_job(user, job_id)
+        job = db.get_job(job_id)
+        if job is None:
+            raise HTTPException(404, "no such gig")
+        kit = db.interview_kit(job_id)
+        if kit is None:
+            job_dict = {
+                "title": job.title,
+                "body": job.body,
+                "hourly": job.hourly,
+                "budget_min": job.budget_min,
+                "budget_max": job.budget_max,
+            }
+            kit = interview.build_kit(job_dict, load_profile(), job.breakdown)
+            db.save_interview_kit(job_id, kit)
+        return {"ok": True, "job_id": job_id, "kit": kit}
+
+    @app.post("/api/jobs/{job_id}/kit")
+    def rebuild_kit(job_id: int, request: Request) -> dict:
+        """Regenerate (profile edits change the money frame and points)."""
+        user = _user(request)
+        _own_job(user, job_id)
+        job = db.get_job(job_id)
+        if job is None:
+            raise HTTPException(404, "no such gig")
+        job_dict = {
+            "title": job.title,
+            "body": job.body,
+            "hourly": job.hourly,
+            "budget_min": job.budget_min,
+            "budget_max": job.budget_max,
+        }
+        kit = interview.build_kit(job_dict, load_profile(), job.breakdown)
+        db.save_interview_kit(job_id, kit)
+        return {"ok": True, "job_id": job_id, "kit": kit}
+
     @app.post("/api/jobs/{job_id}/followup")
     def schedule_bump(job_id: int, body: FollowupBody, request: Request) -> dict:
         user = _user(request)
@@ -1414,6 +1455,20 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             lines.append("fire them from the board — the bump text is one click")
             return "\n".join(lines)
 
+        def kit(jid: int) -> str | None:
+            job = _own(jid)
+            if not job:
+                return None
+            k = db.interview_kit(jid)
+            if k is None:
+                job_dict = {
+                    "title": job.title, "body": job.body, "hourly": job.hourly,
+                    "budget_min": job.budget_min, "budget_max": job.budget_max,
+                }
+                k = interview.build_kit(job_dict, load_profile(), job.breakdown)
+                db.save_interview_kit(jid, k)
+            return interview.format_kit(k)
+
         def approve(jid: int) -> str:
             job = _own(jid)
             if not job:
@@ -1507,7 +1562,8 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
 
         return {"queue": queue, "gig": gig, "approve": approve,
                 "plan": plan, "fire": fire, "stats": stats,
-                "ping": ping, "digest": digest, "followups": followups}
+                "ping": ping, "digest": digest, "followups": followups,
+                "kit": kit}
 
     @app.post("/api/notify/telegram/listen")
     def listen_toggle(body: ListenBody, request: Request) -> dict:

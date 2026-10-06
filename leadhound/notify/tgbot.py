@@ -314,6 +314,12 @@ class PocketBot:
         if cmd == "followups":
             fn = self.deps.get("followups")
             return (str(fn()) if fn else "follow-ups live on the board"), None
+        if cmd == "kit":
+            fn = self.deps.get("kit")
+            if not fn or not args:
+                return "usage: /kit <gig id>", None
+            text = fn(int(args[0])) if args[0].isdigit() else None
+            return (text or f"no gig #{args[0]} on your board"), None
         return (
             "unknown command — /help lists the arsenal", None
         )
@@ -328,6 +334,7 @@ class PocketBot:
             "/stats — the scoreboard\n"
             "/digest — board summary + the three best gigs\n"
             "/followups — which sent gigs are due a bump\n"
+            "/kit <id> — interview prep: questions, money frame\n"
             "/ping — is the radar alive?\n"
             "/help — this card"
         ).replace("&lt;", "<").replace("&gt;", ">")

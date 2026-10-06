@@ -26,6 +26,7 @@ politeness floor 5 min) while the server is up — the sniping radar.
 from __future__ import annotations
 
 import html as _html
+import random
 import secrets
 import threading
 from contextlib import asynccontextmanager
@@ -396,7 +397,9 @@ def _poll_loop(
                 if stop.is_set():
                     return
                 cfg = db.connector_cfg(uid, cid)
-                if _last_run_age_min(cfg) < _connector_interval(cfg, interval):
+                if _last_run_age_min(cfg) < _jittered(
+                    _connector_interval(cfg, interval)
+                ):
                     continue
                 run_connector_for(uid, cid, late_before=late_before)
         except Exception as exc:  # defensive: db hiccups, shutdown races
@@ -408,14 +411,29 @@ def _poll_loop(
             _catchup["pending"] = False  # one catch-up sweep, then routine
 
 
+def _poll_floor_for(cfg: dict) -> int:
+    """Per-source politeness floor: cheap public feeds (min_poll=2) may ride
+    the fast lane; keys, cookies and search APIs stay at 5 min or above."""
+    conn = connectors.get(str(cfg.get("connector_id") or ""))
+    return max(2, int(conn.min_poll)) if conn else POLL_FLOOR_MIN
+
+
 def _connector_interval(cfg: dict, fallback: int) -> int:
     """Per-source cadence: settings.poll_minutes wins, global interval is the
-    floor-guarded default. Clamped 5..120 so nobody DDoSes a source."""
+    floor-guarded default. Clamped to the connector's own politeness floor
+    (2 min for cheap public feeds, 5 otherwise) .. 120 so nobody DDoSes a source."""
     try:
         per = int((cfg.get("settings") or {}).get("poll_minutes") or 0)
     except (TypeError, ValueError):
         per = 0
-    return max(POLL_FLOOR_MIN, min(120, per)) if per else fallback
+    floor = _poll_floor_for(cfg)
+    return max(floor, min(120, per)) if per else max(floor, fallback)
+
+
+def _jittered(minutes: float) -> float:
+    """±20% spread, re-rolled every sweep: a fleet of hounds never lands on
+    the same source at the same second."""
+    return minutes * random.uniform(0.8, 1.2)  # noqa: S311 — scheduling, not crypto
 
 
 # ------------------------------------------------------------------ app factory
@@ -1033,11 +1051,13 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
 
     @app.post("/api/notify/cadence")
     def set_cadence(body: CadenceBody, request: Request) -> dict:
-        """Per-source radar cadence, clamped 5..120 — politeness is not optional."""
+        """Per-source radar cadence, clamped to the connector's politeness
+        floor .. 120 — politeness is not optional."""
         user = _user(request)
         if connectors.get(body.connector) is None:
             raise HTTPException(404, "unknown connector")
-        minutes = max(POLL_FLOOR_MIN, min(120, int(body.minutes)))
+        floor = _poll_floor_for({"connector_id": body.connector})
+        minutes = max(floor, min(120, int(body.minutes)))
         stored = db.connector_cfg(user["id"], body.connector)
         settings = dict(stored.get("settings") or {})
         settings["poll_minutes"] = minutes

@@ -38,6 +38,7 @@ REGISTRY: dict[str, Connector] = {
     for c in [
         Connector(
             id="remoteok",
+            min_poll=2,
             label="RemoteOK",
             kind="public",
             blurb="Remote dev jobs, public API. Works out of the box.",
@@ -45,6 +46,7 @@ REGISTRY: dict[str, Connector] = {
         ),
         Connector(
             id="remotive",
+            min_poll=2,
             label="Remotive",
             kind="public",
             blurb="Remote software-dev gigs via Remotive's public API — starter packs switch its channel.",
@@ -52,6 +54,7 @@ REGISTRY: dict[str, Connector] = {
         ),
         Connector(
             id="weworkremotely",
+            min_poll=2,
             label="WeWorkRemotely",
             kind="public",
             blurb="The remote RSS feeds — starter packs pick the category channel.",
@@ -59,6 +62,7 @@ REGISTRY: dict[str, Connector] = {
         ),
         Connector(
             id="hackernews",
+            min_poll=2,
             label="Hacker News",
             kind="public",
             blurb="The monthly 'Freelancer? Seeking freelancer?' thread.",
@@ -126,6 +130,7 @@ REGISTRY: dict[str, Connector] = {
         ),
         Connector(
             id="rss",
+            min_poll=2,
             label="Custom RSS / Atom feed",
             kind="feed",
             blurb="Any job feed URL — niche boards, Upwork/Fiverr mirrors, agency feeds.",

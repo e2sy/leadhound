@@ -193,9 +193,12 @@ def test_per_user_isolation_in_pipeline(monkeypatch, authed):
 
 def test_cadence_endpoint(authed):
     r = authed.post("/api/notify/cadence",
-                    json={"connector": "remoteok", "minutes": 3})
+                    json={"connector": "remoteok", "minutes": 1})
     assert r.status_code == 200
-    assert r.json()["minutes"] == 5  # floor
+    assert r.json()["minutes"] == 2  # fast-lane floor for cheap public feeds
+    r = authed.post("/api/notify/cadence",
+                    json={"connector": "fiverr", "minutes": 1})
+    assert r.json()["minutes"] == 5  # cookie sources stay polite
     r = authed.post("/api/notify/cadence",
                     json={"connector": "remoteok", "minutes": 500})
     assert r.json()["minutes"] == 120  # ceiling

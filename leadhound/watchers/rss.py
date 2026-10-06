@@ -30,15 +30,51 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+# ---------------------------------------------------- conditional GET cache
+# url -> {"etag": str|None, "modified": str|None}. Process-local on purpose:
+# a restart just means one full poll again — no stale-cache surprises.
+_cond: dict[str, dict] = {}
+
+
+def _cond_headers(url: str) -> dict:
+    """UA + conditional-GET headers from the last response we kept."""
+    hit = _cond.get(url) or {}
+    h = dict(UA)
+    if hit.get("etag"):
+        h["If-None-Match"] = hit["etag"]
+    if hit.get("modified"):
+        h["If-Modified-Since"] = hit["modified"]
+    return h
+
+
+def _remember_cond(url: str, headers) -> None:
+    etag = headers.get("ETag")
+    modified = headers.get("Last-Modified")
+    if etag or modified:
+        _cond[url] = {"etag": etag, "modified": modified}
+
+
 # ---------------------------------------------------------------- RSS sources
 def weworkremotely(settings: dict | None = None) -> list[dict]:
     """WeWorkRemotely — remote jobs RSS. `settings['preset']` picks the
-    category channel (see presets.CHANNELS); default is the freelance feed."""
+    category channel (see presets.CHANNELS); default is the freelance feed.
+    Conditional GET: unchanged feeds answer 304 and we return empty fast."""
     slug = _channel("weworkremotely", (settings or {}).get("preset")) or "remote-freelance-jobs"
+    url = f"https://weworkremotely.com/categories/{slug}.rss"
+    hit = _cond.get(url) or {}
     feed = feedparser.parse(
-        f"https://weworkremotely.com/categories/{slug}.rss",
+        url,
         request_headers=UA,
+        etag=hit.get("etag"),
+        modified=hit.get("modified"),
     )
+    if getattr(feed, "status", None) == 304:
+        return []
+    if getattr(feed, "etag", None) or getattr(feed, "modified", None):
+        _cond[url] = {
+            "etag": getattr(feed, "etag", None),
+            "modified": getattr(feed, "modified", None),
+        }
     out = []
     for e in feed.entries:
         body = e.get("summary", "")
@@ -67,9 +103,14 @@ def _struct_to_iso(st) -> str | None:
 
 # --------------------------------------------------------------- JSON sources
 def remoteok() -> list[dict]:
-    """RemoteOK public API (their docs allow it with attribution + UA)."""
-    r = requests.get("https://remoteok.com/api", headers=UA, timeout=20)
+    """RemoteOK public API (their docs allow it with attribution + UA).
+    Conditional GET: a 304 costs nothing on the 2-minute fast lane."""
+    url = "https://remoteok.com/api"
+    r = requests.get(url, headers=_cond_headers(url), timeout=20)
+    if r.status_code == 304:
+        return []
     r.raise_for_status()
+    _remember_cond(url, r.headers)
     data = r.json()
     out = []
     for item in data[1:]:  # first element is their legal notice
@@ -95,14 +136,14 @@ def remoteok() -> list[dict]:
 
 def remotive(settings: dict | None = None) -> list[dict]:
     """Remotive public jobs API. `settings['preset']` picks the category
-    (see presets.CHANNELS); default is software-dev."""
+    (see presets.CHANNELS); default is software-dev. Conditional GET."""
     cat = _channel("remotive", (settings or {}).get("preset")) or "software-dev"
-    r = requests.get(
-        f"https://remotive.com/api/remote-jobs?category={cat}",
-        headers=UA,
-        timeout=20,
-    )
+    url = f"https://remotive.com/api/remote-jobs?category={cat}"
+    r = requests.get(url, headers=_cond_headers(url), timeout=20)
+    if r.status_code == 304:
+        return []
     r.raise_for_status()
+    _remember_cond(url, r.headers)
     out = []
     for j in r.json().get("jobs", []):
         out.append(

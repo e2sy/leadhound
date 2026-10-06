@@ -36,6 +36,7 @@ class Connector:
     fields: list[Field] = field(default_factory=list)
     fetch: Callable[[dict], tuple[list[dict], dict | None]] | None = None
     setup_url: str = ""  # where the user gets credentials, when kind != public
+    min_poll: int = 5    # politeness floor (minutes): cheap public feeds ride the fast lane
 
     @property
     def needs_setup(self) -> bool:

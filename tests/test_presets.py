@@ -44,7 +44,7 @@ class TestFetchChannels:
     def test_wwr_preset_changes_feed_url(self, monkeypatch):
         seen = {}
 
-        def fake_parse(url, request_headers=None):
+        def fake_parse(url, request_headers=None, etag=None, modified=None):
             seen["url"] = url
             m = MagicMock()
             m.entries = []

@@ -414,6 +414,24 @@ PAGE = r"""<!DOCTYPE html>
     </div>
     <div class="cstat" id="tgStat">no bot token yet</div>
   </div>
+  <div id="hookCard" class="conn">
+    <div class="connhead">
+      <b>📡 instant webhook (freelancer)</b>
+      <span class="badge off" id="hookBadge">off</span>
+    </div>
+    <div class="blurb">optional but savage: register this URL + your signing secret in the
+      freelancer developer portal, and new projects get scored and pushed in seconds —
+      no waiting for the next poll. the poller keeps running as the safety net either way.</div>
+    <div class="fields">
+      <div><label>receiver url</label>
+        <input id="hookUrl" type="text" readonly autocomplete="off">
+        <div class="hint">paste into the developer portal as your webhook endpoint</div></div>
+    </div>
+    <div class="connacts">
+      <button onclick="rotateHook()">🔑 rotate secret</button>
+    </div>
+    <div class="cstat" id="hookStat">checking…</div>
+  </div>
   <div id="rulesCard" class="conn">
     <div class="connhead">
       <b>⚡ auto-snipe rules</b>
@@ -880,7 +898,7 @@ window.showView = v => {
     const el = $(sel);
     if(el) el.style.display = v === "board" ? "" : "none";
   });
-  if(v === "accounts"){ loadConnectors(); loadNotify(); loadRules(); loadPacks(); }
+  if(v === "accounts"){ loadConnectors(); loadNotify(); loadRules(); loadPacks(); loadHook(); }
   else if(v === "stats") loadStats();
   else updateSteps();
 };
@@ -1145,6 +1163,29 @@ window.applyPack = async key => {
 };
 
 /* ------------------------------------------------- telegram pocket sniper */
+async function loadHook(){
+  try{
+    $("#hookUrl").value = location.origin + "/webhook/freelancer";
+    const rd = await loadRadar();
+    const w = rd && rd.webhook;
+    if(!w) return;
+    const badge = $("#hookBadge");
+    badge.textContent = w.armed ? "armed" : "off";
+    badge.className = "badge " + (w.armed ? "ok" : "off");
+    $("#hookStat").textContent = w.armed
+      ? (w.events
+          ? `secret saved ✓ · ${w.events} event(s) received · ${w.ingested} gig(s) landed`
+          : "secret saved ✓ · no events yet — register the url in the developer portal")
+      : "no secret yet — hit 🔑 rotate to mint one, then paste it in the portal";
+  }catch{ /* dashboard stays usable offline */ }
+}
+window.rotateHook = async () => {
+  const d = await post("/api/webhook/freelancer/rotate", {}, null);
+  if(!d) return;
+  try{ await navigator.clipboard.writeText(d.secret); toast("new secret minted — copied to clipboard ✓ (shown only this once)"); }
+  catch(e){ toast("new secret (save it now — shown only this once): " + d.secret); }
+  loadHook();
+};
 async function loadNotify(){
   try{
     const d = await (await fetch("/api/notify")).json();

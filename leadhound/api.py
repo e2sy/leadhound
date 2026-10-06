@@ -63,6 +63,15 @@ _LISTENER_CAP = 8
 # the poller's FIRST sweep only — gigs posted before the reboot are 'late'.
 _catchup: dict = {"pending": False, "late_before": None}
 
+# freelancer webhook vitals — aggregate, process-local: restart resets the
+# counters (the gigs themselves are safe in SQLite, dedupe is on guid).
+_hook_state: dict = {
+    "events": 0,
+    "ingested": 0,
+    "last_event_at": None,
+    "last_signature_ok": None,
+}
+
 
 def stop_pocket_listener(user_id: int) -> None:
     """Silence one account's bot. The long-poll thread exits within seconds."""
@@ -728,6 +737,15 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 "pending": bool(_catchup["pending"]),
                 "late_before": _catchup["late_before"],
             },
+            "webhook": {
+                "armed": bool((db.connector_cfg(user["id"], "freelancer")
+                               .get("settings") or {}).get("webhook_secret")),
+                "receiver": "/webhook/freelancer",
+                "events": _hook_state["events"],
+                "ingested": _hook_state["ingested"],
+                "last_event_at": _hook_state["last_event_at"],
+                "last_signature_ok": _hook_state["last_signature_ok"],
+            },
             "push": {
                 "telegram_enabled": bool(n.get("telegram_enabled")),
                 "listen_enabled": bool(n.get("listen_enabled")),
@@ -1083,6 +1101,8 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         200 = ingested, 202 = fine but nothing to hunt (no retry needed),
         401 = bad signature, 503 = nobody armed the secret yet."""
         raw = await request.body()
+        _hook_state["events"] += 1
+        _hook_state["last_event_at"] = _utcstamp()
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -1098,6 +1118,7 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
             uid for uid, secret in armed
             if _flhook.verify_signature(secret, raw, request.headers)
         ]
+        _hook_state["last_signature_ok"] = bool(matched)
         if not matched:
             return JSONResponse({"ok": False, "error": "bad signature"},
                                 status_code=401)
@@ -1115,7 +1136,24 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
                 continue  # a linked secret without an armed radar hunts nothing
             results = _ingest_for_user(uid, jobs)
             ingested += sum(1 for r in results if r.is_new)
+        _hook_state["ingested"] += ingested
         return JSONResponse({"ok": True, "ingested": ingested})
+
+    @app.post("/api/webhook/freelancer/rotate")
+    def rotate_hook_secret(request: Request) -> dict:
+        """One click, new secret: the old one dies, compromised or leaked.
+        The raw secret is shown exactly once — save it into the portal."""
+        user = _user(request)
+        secret = secrets.token_urlsafe(32)
+        stored = db.connector_cfg(user["id"], "freelancer")
+        settings = dict(stored.get("settings") or {})
+        settings["webhook_secret"] = secret
+        db.save_connector_cfg(user["id"], "freelancer", settings=settings)
+        return {
+            "ok": True,
+            "secret": secret,  # shown ONCE, then the card only ever shows •••
+            "receiver": "/webhook/freelancer",
+        }
 
     # -------------------------------------------------------- pocket listener
     def _listener_deps(user_id: int) -> dict:

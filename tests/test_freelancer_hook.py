@@ -10,11 +10,24 @@ import hashlib
 import hmac
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from leadhound import config, db
-from leadhound.api import create_app
+from leadhound.api import _hook_state, create_app
 from leadhound.connectors import freelancer_hook as hook
+
+
+@pytest.fixture(autouse=True)
+def clean_hook_state():
+    """Module counters survive across tests — reset them each run."""
+    before = dict(_hook_state)
+    _hook_state.update({"events": 0, "ingested": 0, "last_event_at": None,
+                        "last_signature_ok": None})
+    yield
+    _hook_state.clear()
+    _hook_state.update(before)
+
 
 SECRET = "whsec_test_0123456789abcdef"
 
@@ -165,3 +178,51 @@ def test_disabled_connector_hunts_nothing():
                     headers={"X-Signature": _sign(body)})
     assert r.status_code == 200
     assert r.json()["ingested"] == 0  # verified but the radar is off
+
+
+def test_radar_reports_webhook_vitals():
+    client = _armed_client()
+    r = client.get("/api/radar")
+    assert r.status_code == 200
+    w = r.json()["webhook"]
+    assert w["armed"] is True
+    assert w["receiver"] == "/webhook/freelancer"
+    assert w["events"] == 0 and w["ingested"] == 0
+    assert "SECRET" not in r.text
+
+
+def test_radar_counts_events_and_ingests():
+    client = _armed_client()
+    body = json.dumps({"data": {"project": PROJECT}}).encode()
+    client.post("/webhook/freelancer", content=body,
+                headers={"X-Signature": _sign(body)})
+    w = client.get("/api/radar").json()["webhook"]
+    assert w["events"] == 1
+    assert w["ingested"] == 1
+    assert w["last_event_at"] is not None
+    assert w["last_signature_ok"] is True
+
+
+def test_rotate_mints_a_fresh_secret():
+    client = _armed_client()
+    r = client.post("/api/webhook/freelancer/rotate")
+    assert r.status_code == 200
+    new = r.json()["secret"]
+    assert len(new) >= 32
+    # the old one is dead, the new one opens the door
+    body = json.dumps({"data": {"project": PROJECT}}).encode()
+    assert client.post("/webhook/freelancer", content=body,
+                       headers={"X-Signature": _sign(body)}).status_code == 401
+    assert client.post("/webhook/freelancer", content=body,
+                       headers={"X-Signature": _sign(body, new)}).status_code == 200
+    # rotation needs a login
+    assert TestClient(create_app()).post(
+        "/api/webhook/freelancer/rotate").status_code == 401
+
+
+def test_rotate_secret_never_leaks_through_connectors():
+    client = _armed_client()
+    new = client.post("/api/webhook/freelancer/rotate").json()["secret"]
+    r = client.get("/api/connectors")
+    assert new not in r.text  # the raw secret stays out of every listing
+    assert "•••" in r.text    # masked like every other secret

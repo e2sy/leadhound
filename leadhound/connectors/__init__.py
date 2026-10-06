@@ -72,8 +72,22 @@ REGISTRY: dict[str, Connector] = {
             id="freelancer",
             label="Freelancer.com",
             kind="public",
-            blurb="Live search over Freelancer.com's public API — real budgets, no login.",
-            fields=[Field("query", "Search keywords", placeholder="react nextjs")],
+            blurb=(
+                "Live search over Freelancer.com's public API — real budgets, "
+                "no login. Optional: paste your app's webhook signing secret "
+                "and new projects hit the board in seconds, not next poll."
+            ),
+            fields=[
+                Field("query", "Search keywords", placeholder="react nextjs"),
+                Field(
+                    "webhook_secret",
+                    "Webhook signing secret",
+                    placeholder="secret from the freelancer developer portal",
+                    secret=True,
+                    hint="developers.freelancer.com → your app → webhook secret; "
+                         "point the webhook at POST {your leadhound}/webhook/freelancer",
+                ),
+            ],
             fetch=freelancer.fetch,
         ),
         Connector(

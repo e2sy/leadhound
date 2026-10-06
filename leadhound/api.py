@@ -26,6 +26,7 @@ politeness floor 5 min) while the server is up — the sniping radar.
 from __future__ import annotations
 
 import html as _html
+import json
 import random
 import secrets
 import threading
@@ -39,6 +40,7 @@ from pydantic import BaseModel
 from . import __version__, auth, connectors, db
 from .config import TelegramConfig, load_config, load_profile
 from .connectors import freelancer_account as _fla
+from .connectors import freelancer_hook as _flhook
 from .connectors import upwork as _upwork
 from .engine import intel
 from .engine.voice import draft_proposal, improve_draft
@@ -231,6 +233,37 @@ def _connector_payload(user_id: int) -> list[dict]:
 _fetch_lock = threading.Lock()
 
 
+def _ingest_for_user(
+    user_id: int, jobs: list[dict], *, late_before: str | None = None
+) -> list:
+    """The shared ingest path: score, draft, store, push — for one account.
+    Used by the poller, the fetch button AND the webhook receiver, so a
+    webhook gig looks exactly like a polled one."""
+    watch_cfg, llm_cfg, _, wh_cfg, em_cfg = load_config()
+    n = db.notify_cfg(user_id)
+    tg_cfg = (
+        TelegramConfig(
+            enabled=True,
+            bot_token=n.get("telegram_token") or "",
+            chat_id=n.get("telegram_chat_id") or "",
+        )
+        if n.get("telegram_enabled")
+        else None
+    )
+    return ingest_jobs(
+        jobs,
+        profile=load_profile(),
+        llm_cfg=llm_cfg,
+        min_score=watch_cfg.min_score,
+        tg_cfg=tg_cfg,
+        tg_min_score=int(n.get("push_min_score") or 0),
+        wh_cfg=wh_cfg,
+        em_cfg=em_cfg,
+        user_id=user_id,
+        late_before=late_before,
+    )
+
+
 def run_connector_for(
     user_id: int, cid: str, *, wait: bool = True, late_before: str | None = None
 ) -> dict:
@@ -253,29 +286,7 @@ def run_connector_for(
             db.record_connector_run(user_id, cid, "error", str(exc), 0)
             _alert_connector_error(user_id, cid, str(exc), prev)
             return {"connector": cid, "new": 0, "error": str(exc)}
-        watch_cfg, llm_cfg, _, wh_cfg, em_cfg = load_config()
-        n = db.notify_cfg(user_id)
-        tg_cfg = (
-            TelegramConfig(
-                enabled=True,
-                bot_token=n.get("telegram_token") or "",
-                chat_id=n.get("telegram_chat_id") or "",
-            )
-            if n.get("telegram_enabled")
-            else None
-        )
-        results = ingest_jobs(
-            jobs,
-            profile=load_profile(),
-            llm_cfg=llm_cfg,
-            min_score=watch_cfg.min_score,
-            tg_cfg=tg_cfg,
-            tg_min_score=int(n.get("push_min_score") or 0),
-            wh_cfg=wh_cfg,
-            em_cfg=em_cfg,
-            user_id=user_id,
-            late_before=late_before,
-        )
+        results = _ingest_for_user(user_id, jobs, late_before=late_before)
         new = sum(1 for r in results if r.is_new)
         if updated:
             db.save_connector_cfg(user_id, cid, settings=updated)
@@ -1063,6 +1074,48 @@ def create_app(*, start_poller: bool = False) -> FastAPI:
         settings["poll_minutes"] = minutes
         db.save_connector_cfg(user["id"], body.connector, settings=settings)
         return {"ok": True, "connector": body.connector, "minutes": minutes}
+
+    # ------------------------------------------------- freelancer webhook
+    @app.post("/webhook/freelancer")
+    async def freelancer_hook(request: Request) -> JSONResponse:
+        """Instant gig detection: Freelancer.com POSTs project events here,
+        we verify the HMAC against the raw body, then ingest per armed user.
+        200 = ingested, 202 = fine but nothing to hunt (no retry needed),
+        401 = bad signature, 503 = nobody armed the secret yet."""
+        raw = await request.body()
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return JSONResponse({"ok": False, "error": "body is not json"},
+                                status_code=400)
+        armed = db.connector_rows_with_setting("freelancer", "webhook_secret")
+        if not armed:
+            return JSONResponse(
+                {"ok": False, "error": "webhook not armed — save a signing secret first"},
+                status_code=503,
+            )
+        matched = [
+            uid for uid, secret in armed
+            if _flhook.verify_signature(secret, raw, request.headers)
+        ]
+        if not matched:
+            return JSONResponse({"ok": False, "error": "bad signature"},
+                                status_code=401)
+        jobs = _flhook.parse_event(payload)
+        if not jobs:
+            return JSONResponse(
+                {"ok": True, "ingested": 0,
+                 "note": "no public project in this event — nothing to hunt"},
+                status_code=202,
+            )
+        ingested = 0
+        for uid in matched:
+            cfg = db.connector_cfg(uid, "freelancer")
+            if not cfg.get("enabled"):
+                continue  # a linked secret without an armed radar hunts nothing
+            results = _ingest_for_user(uid, jobs)
+            ingested += sum(1 for r in results if r.is_new)
+        return JSONResponse({"ok": True, "ingested": ingested})
 
     # -------------------------------------------------------- pocket listener
     def _listener_deps(user_id: int) -> dict:

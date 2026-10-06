@@ -397,6 +397,27 @@ def latest_connector_run() -> str | None:
     return row["m"] if row and row["m"] else None
 
 
+def connector_rows_with_setting(connector_id: str, key: str) -> list[tuple[int, str]]:
+    """(user_id, value) for every account whose settings for this connector
+    carry a non-empty value at `key` — e.g. who armed a webhook secret."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT user_id, settings FROM connector_config WHERE connector_id = ?",
+        (connector_id,),
+    ).fetchall()
+    c.close()
+    out: list[tuple[int, str]] = []
+    for r in rows:
+        try:
+            settings = json.loads(r["settings"] or "{}")
+        except json.JSONDecodeError:
+            continue
+        val = settings.get(key)
+        if val:
+            out.append((r["user_id"], str(val)))
+    return out
+
+
 def listen_enabled_rows() -> list[int]:
     """Accounts whose pocket listener should be armed when the server boots."""
     c = _conn()

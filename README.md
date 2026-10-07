@@ -38,7 +38,7 @@ REST API (FastAPI) · native binaries for Windows / macOS / Linux**
 
 ### 1. 🖱️ Double-click (no Python needed)
 
-**Download the binary for your OS from [Releases](https://github.com/e2sy/leadhound/releases/latest) and double-click it.** That's the app:
+**Download the binary for your OS from [Releases](https://github.com/e2sy/leadhound/releases/latest) and double-click it.** That's the app: (on Windows? full walkthrough: **[docs/WINDOWS.md](docs/WINDOWS.md)**)
 
 > it self-sets-up → your browser opens the dashboard → **create your account** →
 > open **⚙ sources**, switch on Freelancer.com (zero setup) → hit **⚡ fetch gigs**.
@@ -325,7 +325,7 @@ Alerts email you raw posts, all of them, eventually. leadhound scores every gig 
 <details>
 <summary><b>Windows / macOS / Linux?</b></summary>
 
-Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`, macOS, Linux) straight from the [releases page](https://github.com/e2sy/leadhound/releases/latest): download, run, done.
+Anything with Python 3.11+ — or grab a native one-file binary (Windows `.exe`, macOS, Linux) straight from the [releases page](https://github.com/e2sy/leadhound/releases/latest): download, run, done. Windows users get the full tested walkthrough in [docs/WINDOWS.md](docs/WINDOWS.md) — install, offline demo test, live fetch, Telegram, troubleshooting.
 </details>
 
 ## 🗺️ Roadmap
